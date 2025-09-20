@@ -107,7 +107,7 @@ def display_incident_registration_tab():
         with st.form("confirm_incident_form"):
             col1, col2 = st.columns([1, 2])
             with col1:
-                st.image(data['photo_bytes'], caption="Foto do Incidente", use_column_width=True)
+                st.image(data['photo_bytes'], caption="Foto do Incidente", use_container_width=True)
             
             with col2:
                 edited_evento_resumo = st.text_input("Resumo do Evento", value=data.get('evento_resumo', ''))
