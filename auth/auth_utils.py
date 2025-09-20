@@ -1,39 +1,7 @@
+
 import streamlit as st
-import pandas as pd
-from operations.sheet import SheetOperations
-from gdrive.config import SPREADSHEET_ID
-
-@st.cache_data(ttl=300)
-def get_user_permissions() -> pd.DataFrame:
-    """
-    Carrega a lista de usuários e suas permissões da aba 'usuarios',
-    sendo robusto a colunas extras.
-    """
-    try:
-        sheet_ops = SheetOperations()
-        users_data = sheet_ops.carregar_dados_aba("usuarios")
-        
-        expected_cols = ['email', 'role']
-        if not users_data or len(users_data) < 2:
-            st.warning("A aba 'usuarios' está vazia ou não contém dados de usuários.")
-            return pd.DataFrame(columns=expected_cols)
-        
-        header = [h.strip().lower() for h in users_data[0]]
-        df = pd.DataFrame(users_data[1:], columns=header)
-        
-        if 'email' not in df.columns or 'role' not in df.columns:
-            st.error("ERRO CRÍTICO: A aba 'usuarios' na sua planilha precisa ter as colunas 'email' e 'role'.")
-            return pd.DataFrame(columns=expected_cols)
-
-        permissions_df = df[['email', 'role']].copy()
-        permissions_df['email'] = permissions_df['email'].str.lower().str.strip()
-        permissions_df['role'] = permissions_df['role'].str.lower().str.strip()
-        
-        return permissions_df
-        
-    except Exception as e:
-        st.error(f"Erro crítico ao carregar permissões de usuário: {e}")
-        return pd.DataFrame(columns=['email', 'role'])
+from gdrive.matrix_manager import MatrixManager
+from operations.audit_logger import log_action
 
 def is_user_logged_in():
     """Verifica se o usuário está logado via st.user."""
@@ -41,8 +9,6 @@ def is_user_logged_in():
 
 def get_user_email() -> str | None:
     """Retorna o e-mail do usuário logado."""
-    # --- CORREÇÃO APLICADA AQUI ---
-    # A verificação agora é feita em duas etapas, da forma correta.
     if is_user_logged_in() and hasattr(st.user, 'email'):
         return st.user.email.lower().strip()
     return None
@@ -53,28 +19,62 @@ def get_user_display_name() -> str:
         return st.user.name
     return get_user_email() or "Usuário Desconhecido"
 
-def get_user_role() -> str:
+def authenticate_user() -> bool:
     """
-    Retorna o papel (role) do usuário logado. Se o usuário não estiver na lista,
-    ele é bloqueado.
+    Verifica o usuário na Planilha Matriz, carrega o contexto do tenant (unidade),
+    e armazena as informações na sessão. Esta é a única fonte da verdade para permissões.
     """
     user_email = get_user_email()
     if not user_email:
-        return 'viewer'
+        return False
 
-    permissions_df = get_user_permissions()
-    
-    st.session_state.user_info = {'email': user_email}
+    # Se o usuário já foi autenticado nesta sessão, não faz nada.
+    if st.session_state.get('authenticated_user_email') == user_email:
+        return True
 
-    user_entry = permissions_df[permissions_df['email'] == user_email]
-    
-    if not user_entry.empty:
-        user_role = user_entry.iloc[0]['role']
-        st.session_state.role = user_role
-        return user_role
+    matrix_manager = MatrixManager()
+    user_info = matrix_manager.get_user_info(user_email)
+
+    if not user_info:
+        st.error(f"Acesso negado. Seu e-mail ({user_email}) não está autorizado a usar este sistema.")
+        st.session_state.clear()
+        return False
+
+    # Armazena as informações do usuário na sessão.
+    st.session_state.user_info = user_info
+    st.session_state.role = user_info.get('role', 'viewer')
+    unit_name = user_info.get('unidade_associada')
+
+    if unit_name == '*':
+        st.session_state.unit_name = 'Global'
+        st.session_state.spreadsheet_id = None
+        st.session_state.folder_id = None
     else:
-        st.error(f"Acesso negado. Seu e-mail ({user_email}) não está na lista de usuários autorizados.")
-        st.stop()
+        unit_info = matrix_manager.get_unit_info(unit_name)
+        if not unit_info:
+            st.error(f"Erro de configuração: A unidade '{unit_name}' associada ao seu usuário não foi encontrada na Planilha Matriz.")
+            st.session_state.clear()
+            return False
+        st.session_state.unit_name = unit_info.get('nome_unidade')
+        st.session_state.spreadsheet_id = unit_info.get('spreadsheet_id')
+        st.session_state.folder_id = unit_info.get('folder_id')
+
+    st.session_state.authenticated_user_email = user_email
+    
+    log_action(
+        action="USER_LOGIN",
+        details={
+            "message": f"Usuário '{user_email}' logado com sucesso.",
+            "assigned_role": st.session_state.role,
+            "initial_unit": st.session_state.unit_name
+        }
+    )
+    
+    return True
+
+def get_user_role() -> str:
+    """Retorna o papel (role) do usuário que foi definido durante a autenticação."""
+    return st.session_state.get('role', 'viewer')
 
 def check_permission(level: str = 'editor'):
     """Verifica o nível de permissão e bloqueia a página se não for atendido."""
