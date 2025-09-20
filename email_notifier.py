@@ -6,66 +6,76 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import pandas as pd
+from dotenv import load_dotenv
 
-# Adiciona o diretório raiz ao path para encontrar os módulos do projeto
-root_dir = os.path.dirname(os.path.abspath(__file__))
-if root_dir not in sys.path:
-    sys.path.append(root_dir)
 
-from gdrive.matrix_manager import MatrixManager as GlobalMatrixManager
-from operations.incident_manager import IncidentManager
+try:
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    if root_dir not in sys.path:
+        sys.path.append(root_dir)
+    from operations.sheet import SheetOperations
+    from gdrive.config import SPREADSHEET_ID
+except ImportError:
+    # Fallback para execução local onde a estrutura de pastas pode ser diferente
+    sys.path.append(os.path.abspath(os.path.join(root_dir, '..')))
+    from operations.sheet import SheetOperations
+    from gdrive.config import SPREADSHEET_ID
+
+# Carrega variáveis de ambiente de um arquivo .env se ele existir (para desenvolvimento local)
+load_dotenv()
 
 def get_smtp_config_from_env():
     """Lê a configuração SMTP a partir de variáveis de ambiente."""
     config = {
-        "smtp_server": "smtp.gmail.com", 
-        "smtp_port": 465, 
+        "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "smtp_port": int(os.getenv("SMTP_PORT", 465)),
         "sender_email": os.getenv("SENDER_EMAIL"),
         "sender_password": os.getenv("SENDER_PASSWORD"),
         "receiver_email": os.getenv("RECEIVER_EMAIL")
     }
     if not all([config["sender_email"], config["sender_password"], config["receiver_email"]]):
-        missing = [key for key, value in config.items() if not value and ("email" in key or "password" in key)]
-        raise ValueError(f"Variáveis de ambiente de e-mail ausentes: {', '.join(missing)}. Verifique os Secrets do GitHub.")
+        missing = [key for key, value in config.items() if not value and key.endswith(("_EMAIL", "_PASSWORD"))]
+        raise ValueError(f"Variáveis de ambiente de e-mail ausentes: {', '.join(missing)}. Verifique o arquivo .env ou os Secrets do repositório.")
     return config
 
 def format_overdue_items_email(overdue_df: pd.DataFrame) -> str:
-    """Formata um DataFrame de itens atrasados em um corpo de e-mail HTML."""
+    """Formata um DataFrame de itens atrasados em um corpo de e-mail HTML bem estruturado."""
     html_style = """
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; }
-        .container { max-width: 950px; margin: 20px auto; padding: 20px; background-color: #ffffff; border-radius: 8px; }
-        h1 { font-size: 24px; text-align: center; color: #c0392b; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #333; }
+        .container { max-width: 950px; margin: 20px auto; padding: 20px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; }
+        h1 { font-size: 24px; text-align: center; color: #c0392b; border-bottom: 2px solid #c0392b; padding-bottom: 10px; }
         h2 { font-size: 18px; color: #34495e; margin-top: 35px; border-bottom: 2px solid #e0e0e0; padding-bottom: 5px; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 25px; font-size: 13px; }
-        th, td { border: 1px solid #dddddd; padding: 8px 12px; text-align: left; }
-        th { background-color: #f2f2f2; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 25px; font-size: 13px; background-color: #ffffff; }
+        th, td { border: 1px solid #dddddd; padding: 10px 14px; text-align: left; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .footer { font-size: 12px; text-align: center; color: #888; margin-top: 30px; }
     </style>
     """
     html_body = f"""
     <html><head>{html_style}</head><body><div class="container">
-    <h1>Alerta de Ações de Abrangência Atrasadas</h1>
+    <h1>⚠️ Alerta: Ações de Abrangência Atrasadas</h1>
     <p style="text-align:center;">Relatório automático gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
     """
     
     # Agrupa por unidade para criar uma seção para cada uma
     for unit_name, group in overdue_df.groupby('unidade_operacional'):
-        html_body += f'<h2>Unidade: {unit_name} ({len(group)} iten(s) atrasado(s))</h2>'
+        html_body += f'<h2>Unidade: {unit_name} ({len(group)} item(s) atrasado(s))</h2>'
         
         # Formata a data para exibição
         group_display = group.copy()
-        group_display['prazo_inicial'] = pd.to_datetime(group_display['prazo_inicial']).dt.strftime('%d/%m/%Y')
+        group_display['prazo_inicial'] = pd.to_datetime(group_display['prazo_inicial'], dayfirst=True).dt.strftime('%d/%m/%Y')
         
         cols_to_show = {
             'descricao_acao': 'Ação de Abrangência',
             'responsavel_email': 'Responsável',
-            'prazo_inicial': 'Prazo'
+            'prazo_inicial': 'Prazo Vencido'
         }
-        group_display = group_display[cols_to_show.keys()].rename(columns=cols_to_show)
+        group_display = group_display[list(cols_to_show.keys())].rename(columns=cols_to_show)
         
         html_body += group_display.to_html(index=False, border=0, na_rep='N/A')
             
-    html_body += "</div></body></html>"
+    html_body += "<p class='footer'>Este é um e-mail automático. Por favor, não responda.</p></div></body></html>"
     return html_body
 
 def send_smtp_email(html_body: str, config: dict):
@@ -86,80 +96,67 @@ def send_smtp_email(html_body: str, config: dict):
             server.sendmail(config["sender_email"], config["receiver_email"].split(','), message.as_string())
             print("E-mail enviado com sucesso!")
     except Exception as e:
-        print(f"Falha ao enviar e-mail via SMTP: {e}")
+        print(f"ERRO: Falha ao enviar e-mail via SMTP: {e}")
         raise
 
 def main():
-    """Função principal que busca itens atrasados em todas as unidades e envia um e-mail consolidado."""
+    """
+    Função principal que busca itens atrasados na Planilha Matriz e envia um e-mail consolidado.
+    """
     print("Iniciando script de notificação de ações de abrangência...")
     try:
         config = get_smtp_config_from_env()
-        
-        global_manager = GlobalMatrixManager()
-        all_units = global_manager.get_all_units()
-        matrix_spreadsheet_id = global_manager.spreadsheet.id
-        
-        # Carrega as descrições das ações da planilha central uma única vez
-        central_incident_manager = IncidentManager(matrix_spreadsheet_id)
-        blocking_actions_df = central_incident_manager.sheet_ops.get_df_from_worksheet("acoes_bloqueio")
-        if blocking_actions_df.empty:
-            print("AVISO: Não foi possível carregar as descrições das ações de bloqueio. As descrições estarão ausentes no e-mail.")
+        sheet_ops = SheetOperations()
 
-        all_overdue_items = []
-        
-        for unit in all_units:
-            unit_name, spreadsheet_id = unit.get('nome_unidade'), unit.get('spreadsheet_id')
-            if not spreadsheet_id:
-                print(f"AVISO: Unidade '{unit_name}' sem spreadsheet_id. Pulando.")
-                continue
-            
-            print(f"--- Processando unidade: {unit_name} ---")
-            unit_incident_manager = IncidentManager(spreadsheet_id)
-            action_plan_df = unit_incident_manager.sheet_ops.get_df_from_worksheet("plano_de_acao_abrangencia")
+        print("Carregando dados da Planilha Matriz...")
+        action_plan_df = sheet_ops.get_df_from_worksheet("plano_de_acao_abrangencia")
+        blocking_actions_df = sheet_ops.get_df_from_worksheet("acoes_bloqueio")
 
-            if action_plan_df.empty or 'status' not in action_plan_df.columns or 'prazo_inicial' not in action_plan_df.columns:
-                continue
-
-            # Filtra por status pendente/em andamento
-            pending_items = action_plan_df[action_plan_df['status'].str.lower().isin(['pendente', 'em andamento'])].copy()
-            if pending_items.empty:
-                continue
-
-            # Verifica o prazo
-            pending_items['prazo_dt'] = pd.to_datetime(pending_items['prazo_inicial'], errors='coerce').dt.date
-            today = datetime.now().date()
-            overdue_items = pending_items[pending_items['prazo_dt'] < today]
-
-            if not overdue_items.empty:
-                all_overdue_items.append(overdue_items)
-
-        if not all_overdue_items:
-            print("Nenhum item de ação de abrangência atrasado encontrado em todas as unidades. E-mail não será enviado.")
+        if action_plan_df.empty or 'status' not in action_plan_df.columns or 'prazo_inicial' not in action_plan_df.columns:
+            print("Plano de ação está vazio ou com colunas faltando. Encerrando.")
             return
 
-        print(f"Encontrados {sum(len(df) for df in all_overdue_items)} itens atrasados. Gerando relatório...")
-        consolidated_df = pd.concat(all_overdue_items, ignore_index=True)
+        # 1. Filtra por status pendente/em andamento
+        pending_items = action_plan_df[action_plan_df['status'].str.lower().isin(['pendente', 'em andamento'])].copy()
+        if pending_items.empty:
+            print("Nenhum item com status 'Pendente' ou 'Em Andamento'. Encerrando.")
+            return
 
-        # Adiciona a descrição da ação ao relatório
+        # 2. Verifica o prazo
+        # `dayfirst=True` é crucial para interpretar corretamente 'dd/mm/yyyy'
+        pending_items['prazo_dt'] = pd.to_datetime(pending_items['prazo_inicial'], errors='coerce', dayfirst=True).dt.date
+        today = datetime.now().date()
+        overdue_items = pending_items[pending_items['prazo_dt'] < today]
+
+        if overdue_items.empty:
+            print("Nenhum item de ação de abrangência atrasado encontrado. E-mail não será enviado.")
+            return
+
+        print(f"Encontrados {len(overdue_items)} itens atrasados. Gerando relatório...")
+
+        # 3. Adiciona a descrição da ação ao relatório
         if not blocking_actions_df.empty:
             final_df = pd.merge(
-                consolidated_df,
+                overdue_items,
                 blocking_actions_df[['id', 'descricao_acao']],
                 left_on='id_acao_bloqueio',
                 right_on='id',
                 how='left'
             )
         else:
-            final_df = consolidated_df
+            print("AVISO: Não foi possível carregar as descrições das ações. Descrições estarão ausentes no e-mail.")
+            final_df = overdue_items
             final_df['descricao_acao'] = "Descrição não encontrada"
 
+        # 4. Formata e envia o e-mail
         email_body = format_overdue_items_email(final_df)
         send_smtp_email(email_body, config)
         
         print("Script finalizado com sucesso.")
 
     except Exception as e:
-        print(f"Erro fatal no script: {e}")
+        print(f"ERRO FATAL no script: {e}")
+        # Retorna um código de saída diferente de zero para indicar falha no GitHub Actions
         sys.exit(1)
 
 if __name__ == "__main__":
