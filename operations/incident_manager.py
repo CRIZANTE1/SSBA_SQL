@@ -127,3 +127,40 @@ class IncidentManager:
         else:
             logger.error(f"Falha ao atualizar a ação {action_id}.")
         return success
+
+    def get_covered_incident_ids_for_unit(self, unit_name: str) -> set:
+        """
+        Retorna um conjunto de IDs de incidentes que já possuem pelo menos uma ação 
+        de abrangência registrada para uma unidade operacional específica.
+
+        Args:
+            unit_name (str): O nome da unidade operacional.
+
+        Returns:
+            set: Um conjunto de strings contendo os IDs dos incidentes já abrangidos.
+        """
+        action_plan_df = self.get_all_action_plans()
+        if action_plan_df.empty or 'unidade_operacional' not in action_plan_df.columns:
+            return set()
+
+        # Filtra o plano de ação para a unidade específica
+        unit_actions_df = action_plan_df[action_plan_df['unidade_operacional'] == unit_name]
+        if unit_actions_df.empty:
+            return set()
+
+        # Pega as ações de bloqueio relacionadas a essas ações da unidade
+        all_blocking_actions_df = self.get_all_blocking_actions()
+        if all_blocking_actions_df.empty:
+            return set()
+
+        # Faz um merge para encontrar os 'id_incidente' correspondentes
+        merged_df = pd.merge(
+            unit_actions_df,
+            all_blocking_actions_df[['id', 'id_incidente']],
+            left_on='id_acao_bloqueio',
+            right_on='id',
+            how='inner'
+        )
+
+        # Retorna um conjunto de IDs de incidentes únicos
+        return set(merged_df['id_incidente'].unique())
