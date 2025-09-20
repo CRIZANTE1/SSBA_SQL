@@ -4,7 +4,7 @@ import pandas as pd
 import logging
 from datetime import date
 from operations.sheet import SheetOperations
-from gdrive.matrix_manager import get_matrix_manager # ADICIONADO PARA O NOVO MÉTODO
+from gdrive.matrix_manager import get_matrix_manager
 
 logger = logging.getLogger('abrangencia_app.incident_manager')
 
@@ -105,20 +105,15 @@ class IncidentManager:
         """
         logger.info(f"Adicionando ação de abrangência para a ação {id_acao_bloqueio} na unidade {unidade_operacional}.")
         prazo_str = prazo_inicial.strftime('%d/%m/%Y')
-
-        # Garante que o co-responsável seja uma string vazia se for None ou nulo
         co_resp_email_str = co_responsavel_email if co_responsavel_email else ""
-
-        # A ordem aqui deve corresponder exatamente à ordem das colunas na sua planilha
         new_action_data = [
             id_acao_bloqueio, 
             unidade_operacional, 
             responsavel_email, 
-            co_resp_email_str, # Nova coluna
+            co_resp_email_str,
             prazo_str, 
             status
         ]
-
         new_id = self.sheet_ops.adc_dados_aba("plano_de_acao_abrangencia", new_action_data)
         if new_id:
             logger.info(f"Ação de abrangência {new_id} adicionada com sucesso.")
@@ -144,28 +139,19 @@ class IncidentManager:
         """
         Retorna um conjunto de IDs de incidentes que já possuem pelo menos uma ação 
         de abrangência registrada para uma unidade operacional específica.
-
-        Args:
-            unit_name (str): O nome da unidade operacional.
-
-        Returns:
-            set: Um conjunto de strings contendo os IDs dos incidentes já abrangidos.
         """
         action_plan_df = self.get_all_action_plans()
         if action_plan_df.empty or 'unidade_operacional' not in action_plan_df.columns:
             return set()
 
-        # Filtra o plano de ação para a unidade específica
         unit_actions_df = action_plan_df[action_plan_df['unidade_operacional'] == unit_name]
         if unit_actions_df.empty:
             return set()
 
-        # Pega as ações de bloqueio relacionadas a essas ações da unidade
         all_blocking_actions_df = self.get_all_blocking_actions()
         if all_blocking_actions_df.empty:
             return set()
 
-        # Faz um merge para encontrar os 'id_incidente' correspondentes
         merged_df = pd.merge(
             unit_actions_df,
             all_blocking_actions_df[['id', 'id_incidente']],
@@ -173,69 +159,48 @@ class IncidentManager:
             right_on='id',
             how='inner'
         )
-
-        # Retorna um conjunto de IDs de incidentes únicos
         return set(merged_df['id_incidente'].unique())
 
-    # --- NOVO MÉTODO ABAIXO ---
     def get_globally_pending_incidents(self, all_active_units: list[str]) -> pd.DataFrame:
         """
         Retorna um DataFrame de incidentes que ainda não foram abrangidos por TODAS
         as unidades operacionais ativas.
-        
-        Args:
-            all_active_units (list[str]): Uma lista com o nome de todas as UOs ativas no sistema.
-            
-        Returns:
-            pd.DataFrame: Um DataFrame contendo apenas os incidentes com pendências globais.
         """
         all_incidents_df = self.get_all_incidents()
         action_plan_df = self.get_all_action_plans()
         blocking_actions_df = self.get_all_blocking_actions()
 
         if all_incidents_df.empty:
-            return pd.DataFrame() # Retorna DataFrame vazio se não houver incidentes
+            return pd.DataFrame()
 
         if not all_active_units:
-            return all_incidents_df # Retorna tudo se não houver unidades ativas para comparar (todos estão 'pendentes')
+            return all_incidents_df
 
         if action_plan_df.empty:
-            return all_incidents_df # Se não há plano de ação registrado, todos os incidentes estão globalmente pendentes
+            return all_incidents_df
 
-        # 1. Mapeia 'id_incidente' para 'unidade_operacional' usando as ações de bloqueio
-        # Certifique-se de que a coluna 'id_acao_bloqueio' e 'id' existem para o merge
         if 'id_acao_bloqueio' not in action_plan_df.columns or 'id' not in blocking_actions_df.columns:
-            logger.error("Colunas essenciais para merge não encontradas em action_plan_df ou blocking_actions_df.")
-            return all_incidents_df # Fallback, considera todos pendentes
+            logger.error("Colunas essenciais para merge não encontradas.")
+            return all_incidents_df
 
         merged_df = pd.merge(
             action_plan_df,
             blocking_actions_df[['id', 'id_incidente']],
             left_on='id_acao_bloqueio',
             right_on='id',
-            how='left',
-            suffixes=('_plan', '_block') # Evita conflito de colunas 'id'
+            how='left'
         )
         
-        # Garante que 'id_incidente' não seja nulo após o merge (caso alguma id_acao_bloqueio não tenha correspondência)
         merged_df.dropna(subset=['id_incidente'], inplace=True)
 
-
-        # 2. Agrupa por incidente e cria um conjunto de UOs que já o cobriram
-        # Usar .astype(str) para garantir que os IDs de incidente sejam comparáveis
         coverage_by_incident = merged_df.groupby(merged_df['id_incidente'].astype(str))['unidade_operacional'].unique().apply(set)
-        
-        # 3. Conjunto de UOs que são obrigatórias
         required_units_set = set(all_active_units)
 
-        # 4. Encontra os IDs dos incidentes que já foram totalmente cobertos
         fully_covered_ids = {
             incident_id for incident_id, covered_units in coverage_by_incident.items()
             if required_units_set.issubset(covered_units)
         }
         
-        # 5. Filtra o DataFrame original para retornar apenas os incidentes que NÃO estão na lista de totalmente cobertos
-        # Usar .astype(str) para garantir que os IDs de incidente sejam comparáveis
         pending_incidents_df = all_incidents_df[~all_incidents_df['id'].astype(str).isin(fully_covered_ids)]
         
         return pending_incidents_df
