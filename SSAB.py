@@ -13,7 +13,6 @@ logging.basicConfig(
 logger = logging.getLogger('abrangencia_app')
 
 # --- Configuração do Caminho (Path) ---
-# Garante que os módulos do projeto possam ser importados
 root_dir = os.path.dirname(os.path.abspath(__file__))
 if root_dir not in sys.path:
     sys.path.append(root_dir)
@@ -25,6 +24,7 @@ from front.dashboard import show_dashboard_page
 from front.administracao import show_admin_page
 from front.plano_de_acao import show_plano_acao_page
 from gdrive.matrix_manager import get_matrix_manager 
+from operations.audit_logger import log_action # Importar o logger
 
 def configurar_pagina():
     """Define as configurações globais da página Streamlit."""
@@ -42,7 +42,6 @@ def show_request_access_form():
     st.info("Seu e-mail ainda não foi autorizado a acessar o sistema. Por favor, preencha o formulário abaixo para solicitar o acesso a um administrador.")
     
     with st.form("request_access_form"):
-        # Preenche o nome com o valor da conta Google como sugestão
         user_name = st.text_input("Seu nome completo", value=get_user_display_name())
         user_unit = st.text_input("Sua Unidade Operacional (UO)", placeholder="Ex: Unidade São Paulo")
         submitted = st.form_submit_button("Enviar Solicitação")
@@ -53,7 +52,12 @@ def show_request_access_form():
             else:
                 matrix_manager = get_matrix_manager()
                 if matrix_manager.add_access_request(get_user_email(), user_name, user_unit):
-                    # Atualiza o status na sessão para mostrar a tela de "pendente"
+                    # <<< NOVA AÇÃO DE LOG AQUI >>>
+                    log_action("ACCESS_REQUEST_SUBMITTED", {
+                        "email": get_user_email(), 
+                        "name": user_name, 
+                        "unit": user_unit
+                    })
                     st.session_state.access_status = "pending"
                     st.rerun()
                 else:
@@ -63,16 +67,11 @@ def main():
     """Função principal que orquestra a execução do aplicativo."""
     configurar_pagina()
 
-    # Etapa 1: Garante que o usuário fez login com a conta Google.
-    # Se não, exibe o botão de login e interrompe a execução.
     if not show_login_page():
         return
 
-    # Etapa 2: Autentica o usuário no nosso sistema (verifica na planilha).
-    # Esta função define st.session_state.access_status.
     is_authorized = authenticate_user()
 
-    # Etapa 3: Lida com usuários não autorizados ou com acesso pendente.
     if not is_authorized:
         access_status = st.session_state.get('access_status')
         
@@ -83,18 +82,25 @@ def main():
             show_logout_button()
         
         elif access_status == "unauthorized":
+            # <<< NOVA AÇÃO DE LOG AQUI (com controle para não repetir) >>>
+            # Só registra a tentativa de acesso não autorizado uma vez por sessão
+            if not st.session_state.get('unauthorized_log_sent', False):
+                log_action("UNAUTHORIZED_ACCESS_ATTEMPT", {
+                    "email": get_user_email(),
+                    "name": get_user_display_name()
+                })
+                st.session_state.unauthorized_log_sent = True
+            
             show_request_access_form()
             show_logout_button()
         
-        return # Impede a renderização do aplicativo principal
+        return
 
-    # Etapa 4: Se o usuário está autorizado, renderiza o aplicativo principal.
     user_role = get_user_role()
 
     with st.sidebar:
         show_user_header()
         
-        # Define os itens do menu com base no papel do usuário
         menu_items = {
             "Consultar Abrangência": {"icon": "card-checklist", "function": show_dashboard_page},
             "Plano de Ação": {"icon": "clipboard2-check-fill", "function": show_plano_acao_page},
@@ -102,7 +108,6 @@ def main():
         if user_role == 'admin':
             menu_items["Administração"] = {"icon": "gear-fill", "function": show_admin_page}
 
-        # Renderiza o menu
         selected_page = option_menu(
             menu_title="Menu Principal",
             options=list(menu_items.keys()),
@@ -118,7 +123,6 @@ def main():
         )
         show_logout_button()
     
-    # Executa a função da página selecionada no menu
     page_to_run = menu_items.get(selected_page)
     if page_to_run:
         logger.info(f"Usuário '{get_user_email()}' navegando para a página: {selected_page}")
@@ -126,6 +130,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
 
 
