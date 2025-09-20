@@ -23,13 +23,14 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
         with st.spinner("Analisando documento com IA e fazendo upload dos arquivos..."):
             # 1. Análise com IA
             api_op = PDFQA()
-            prompt = """
+            prompt = prompt = """
             Você é um especialista em análise de incidentes de segurança. Extraia as seguintes informações do documento e retorne um JSON.
-            - evento_resumo: Um título curto e informativo para o evento (ex: "Tombamento de caminhão em mina").
-            - data_evento: A data em que o evento ocorreu, no formato YYYY-MM-DD.
-            - o_que_aconteceu: Um parágrafo detalhado descrevendo o que aconteceu.
-            - por_que_aconteceu: Um parágrafo descrevendo as causas fundamentais do incidente.
-            - recomendacoes: Uma lista de strings, onde cada string é uma ação de bloqueio específica.
+            - evento_resumo: Um título curto e informativo para o evento (ex: "Princípio de incêndio no laboratório").
+            - data_evento: A data de emissão do alerta, no formato YYYY-MM-DD.
+            - o_que_aconteceu: O parágrafo completo da seção "O que aconteceu?".
+            - por_que_aconteceu: O parágrafo completo da seção "Por que aconteceu?".
+            - recomendacoes: Uma lista de strings, onde cada string é um item da seção "O que fazer para evitar?".
+            
             Responda APENAS com o bloco de código JSON.
             """
             analysis_result, _ = api_op.answer_question(
