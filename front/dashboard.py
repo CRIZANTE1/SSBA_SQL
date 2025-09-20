@@ -9,20 +9,19 @@ from operations.audit_logger import log_action
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
     Renderiza um diálogo modal para o usuário analisar o incidente e selecionar
-    as ações de abrangência aplicáveis.
+    as ações de abrangência aplicáveis, definindo responsáveis.
     """
     st.subheader(incident.get('evento_resumo'))
     st.caption(f"Alerta: {incident.get('numero_alerta')} | Data: {pd.to_datetime(incident.get('data_evento'), dayfirst=True).strftime('%d/%m/%Y')}")
     st.divider()
 
-    # Detalhes do incidente
+    # Detalhes do incidente (permanece igual)
     st.markdown(f"**O que aconteceu?**")
     st.write(incident.get('o_que_aconteceu'))
     st.markdown(f"**Por que aconteceu?**")
     st.write(incident.get('por_que_aconteceu'))
     st.divider()
 
-    # Ações de bloqueio para seleção
     blocking_actions = incident_manager.get_blocking_actions_by_incident(incident['id'])
     
     if blocking_actions.empty:
@@ -38,26 +37,40 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         for _, action in blocking_actions.iterrows():
             action_id = action['id']
             description = action['descricao_acao']
-            # Usando st.toggle para um visual moderno
             is_pertinent = st.toggle(description, key=f"toggle_dialog_{action_id}")
             if is_pertinent:
                 pertinent_actions[action_id] = description
         
         st.divider()
-        st.markdown("**Detalhes para o Plano de Ação:**")
+        st.markdown("**Defina os responsáveis e o prazo para as ações selecionadas:**")
         
-        responsavel_email = st.text_input("E-mail do Responsável", value=st.session_state.get('user_info', {}).get('email', ''))
+        # <<< MUDANÇA IMPORTANTE: Novos campos de e-mail >>>
+        col1, col2 = st.columns(2)
+        with col1:
+            # O responsável principal, com o e-mail do usuário logado como sugestão
+            responsavel_email = st.text_input(
+                "E-mail do Responsável Principal", 
+                value=st.session_state.get('user_info', {}).get('email', ''),
+                help="Este é o responsável direto pela execução da ação."
+            )
+        with col2:
+            # O co-responsável, que receberá as notificações junto com o principal
+            co_responsavel_email = st.text_input(
+                "E-mail do Co-responsável (Opcional)",
+                placeholder="email.coresponsavel@exemplo.com",
+                help="Receberá os lembretes de prazo junto com o responsável principal."
+            )
+
         prazo_inicial = st.date_input("Prazo para Implementação", min_value=date.today())
 
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
         if submitted:
             if not pertinent_actions:
-                st.warning("Nenhuma ação foi selecionada. Para concluir a análise, selecione ao menos uma ação aplicável ou contate o administrador.")
+                st.warning("Nenhuma ação foi selecionada. Para concluir a análise, selecione ao menos uma ação aplicável.")
                 return
-
             if not responsavel_email or not prazo_inicial:
-                st.error("O e-mail do responsável e o prazo são obrigatórios.")
+                st.error("O e-mail do responsável principal e o prazo são obrigatórios.")
                 return
 
             saved_count = 0
@@ -67,6 +80,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                         id_acao_bloqueio=action_id,
                         unidade_operacional=st.session_state.unit_name,
                         responsavel_email=responsavel_email,
+                        co_responsavel_email=co_responsavel_email, # Novo argumento
                         prazo_inicial=prazo_inicial,
                         status="Pendente"
                     )
@@ -75,8 +89,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                         log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": desc})
             
             st.success(f"{saved_count} ação(ões) salvas com sucesso! Este alerta será removido da sua lista de pendências.")
-            st.balloons()
-            # Um pequeno delay para o usuário ver a mensagem de sucesso antes do rerun
+            #st.balloons()
             import time
             time.sleep(2)
             st.rerun()
