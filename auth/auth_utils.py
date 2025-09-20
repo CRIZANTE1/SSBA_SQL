@@ -41,7 +41,8 @@ def get_user_email() -> str | None:
 
 def get_user_display_name() -> str:
     """Retorna o nome de exibição do usuário."""
-    if is_user_logged_in() and hasattr(st, 'user', 'name'):
+
+    if is_user_logged_in() and hasattr(st.user, 'name'):
         return st.user.name
     return get_user_email() or "Usuário Desconhecido"
 
