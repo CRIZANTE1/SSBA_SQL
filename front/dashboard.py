@@ -29,6 +29,11 @@ def convert_drive_url_to_displayable(url: str) -> str | None:
         # Se a extração do ID falhar
         return None
         
+# front/dashboard.py
+
+# Adicione esta importação no início do arquivo
+from gdrive.matrix_manager import get_matrix_manager
+
 @st.dialog("Análise de Abrangência do Incidente")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
@@ -39,7 +44,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.caption(f"Alerta: {incident.get('numero_alerta')} | Data: {pd.to_datetime(incident.get('data_evento'), dayfirst=True).strftime('%d/%m/%Y')}")
     st.divider()
 
-    # Detalhes do incidente (permanece igual)
+    # Detalhes do incidente
     st.markdown(f"**O que aconteceu?**")
     st.write(incident.get('o_que_aconteceu'))
     st.markdown(f"**Por que aconteceu?**")
@@ -54,9 +59,33 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
             st.rerun()
         return
 
-    st.subheader("Selecione as ações aplicáveis à sua UO")
+    st.subheader("Selecione as ações aplicáveis")
     
     with st.form("abrangencia_dialog_form"):
+        # --- LÓGICA CONDICIONAL PARA O ADMIN GLOBAL ---
+        is_admin = st.session_state.get('unit_name') == 'Global'
+        target_unit_name = None
+
+        if is_admin:
+            st.info("Como Administrador, você pode registrar esta abrangência para qualquer UO.")
+            matrix_manager = get_matrix_manager()
+            all_units = matrix_manager.get_all_units()
+            options = ["-- Digitar nome da UO --"] + all_units
+            
+            chosen_option = st.selectbox(
+                "Selecione a Unidade Operacional (UO)", 
+                options=options
+            )
+
+            if chosen_option == "-- Digitar nome da UO --":
+                target_unit_name = st.text_input("Digite o nome da UO (ex: BAERI)", key="new_uo_input")
+            else:
+                target_unit_name = chosen_option
+        else:
+            # Para usuários normais, a UO é a sua própria, sem opção de escolha.
+            st.markdown(f"**Unidade Operacional:** `{st.session_state.unit_name}`")
+        # --- FIM DA LÓGICA CONDICIONAL ---
+
         pertinent_actions = {}
         for _, action in blocking_actions.iterrows():
             action_id = action['id']
@@ -68,17 +97,14 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         st.divider()
         st.markdown("**Defina os responsáveis e o prazo para as ações selecionadas:**")
         
-        # <<< MUDANÇA IMPORTANTE: Novos campos de e-mail >>>
         col1, col2 = st.columns(2)
         with col1:
-            # O responsável principal, com o e-mail do usuário logado como sugestão
             responsavel_email = st.text_input(
                 "E-mail do Responsável Principal", 
                 value=st.session_state.get('user_info', {}).get('email', ''),
                 help="Este é o responsável direto pela execução da ação."
             )
         with col2:
-            # O co-responsável, que receberá as notificações junto com o principal
             co_responsavel_email = st.text_input(
                 "E-mail do Co-responsável (Opcional)",
                 placeholder="email.coresponsavel@exemplo.com",
@@ -90,6 +116,15 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
         if submitted:
+            # Define qual nome de unidade será salvo
+            if is_admin:
+                unit_to_save = target_unit_name
+                if not unit_to_save:
+                    st.error("Administrador: Por favor, selecione ou digite o nome da Unidade Operacional.")
+                    return
+            else:
+                unit_to_save = st.session_state.unit_name
+
             if not pertinent_actions:
                 st.warning("Nenhuma ação foi selecionada. Para concluir a análise, selecione ao menos uma ação aplicável.")
                 return
@@ -98,22 +133,21 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                 return
 
             saved_count = 0
-            with st.spinner("Salvando..."):
+            with st.spinner(f"Salvando ações para a UO: {unit_to_save}..."):
                 for action_id, desc in pertinent_actions.items():
                     new_id = incident_manager.add_abrangencia_action(
                         id_acao_bloqueio=action_id,
-                        unidade_operacional=st.session_state.unit_name,
+                        unidade_operacional=unit_to_save,  
                         responsavel_email=responsavel_email,
-                        co_responsavel_email=co_responsavel_email, # Novo argumento
+                        co_responsavel_email=co_responsavel_email,
                         prazo_inicial=prazo_inicial,
                         status="Pendente"
                     )
                     if new_id:
                         saved_count += 1
-                        log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": desc})
+                        log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": desc, "target_unit": unit_to_save})
             
-            st.success(f"{saved_count} ação(ões) salvas com sucesso! Este alerta será removido da sua lista de pendências.")
-            #st.balloons()
+            st.success(f"{saved_count} ação(ões) salvas com sucesso para a UO '{unit_to_save}'!")
             import time
             time.sleep(2)
             st.rerun()
