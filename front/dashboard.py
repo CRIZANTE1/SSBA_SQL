@@ -150,7 +150,8 @@ def display_incident_list(incident_manager: IncidentManager):
     for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
         col = cols[i % 3]
         with col.container(border=True):
-            st.image(incident.get('foto_url'), use_container_width=True)
+            display_url = convert_drive_url_to_displayable(incident.get('foto_url'))
+            st.image(display_url, use_container_width=True)
             st.subheader(incident.get('evento_resumo'))
             st.write(incident.get('o_que_aconteceu'))
             
