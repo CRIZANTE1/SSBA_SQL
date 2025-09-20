@@ -43,6 +43,23 @@ class MatrixManager:
         user_info = users_df[users_df['email'].str.lower().str.strip() == email.lower().strip()]
         return user_info.iloc[0].to_dict() if not user_info.empty else None
 
+    def get_all_units(self) -> list[str]:
+        """
+        Retorna uma lista de nomes de unidades operacionais únicas a partir da
+        planilha de usuários, excluindo o valor '*' do admin global.
+        """
+        users_df = self.get_all_users_df()
+        if users_df.empty or 'unidade_associada' not in users_df.columns:
+            return []
+
+        # Pega valores únicos, remove nulos/NaN, converte para string
+        units = users_df['unidade_associada'].dropna().unique()
+
+        # Filtra o valor '*' e strings vazias, e então ordena a lista
+        unit_list = sorted([str(unit) for unit in units if unit and str(unit).strip() and str(unit) != '*'])
+        
+        return unit_list
+        
     def add_user(self, user_data: list) -> bool:
         logger.info(f"Adicionando novo usuário: {user_data[0]}")
         success = self.sheet_ops.adc_linha_simples("usuarios", user_data)
