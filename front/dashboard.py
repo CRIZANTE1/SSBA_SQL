@@ -125,7 +125,6 @@ def display_incident_list(incident_manager: IncidentManager):
         st.info("Nenhum alerta de incidente cadastrado no sistema.")
         return
 
-    # Filtra alertas já abrangidos
     if user_unit == 'Global':
         incidents_to_show_df = all_incidents_df
         st.info("Visão de Administrador: mostrando todos os alertas globais.")
@@ -137,7 +136,6 @@ def display_incident_list(incident_manager: IncidentManager):
         st.success(f"🎉 Todos os alertas de incidentes já foram analisados pela unidade **{user_unit}**.")
         return
 
-    # Ordena e exibe
     try:
         incidents_to_show_df['data_evento_dt'] = pd.to_datetime(incidents_to_show_df['data_evento'], dayfirst=True)
         sorted_incidents = incidents_to_show_df.sort_values(by="data_evento_dt", ascending=False)
@@ -150,13 +148,30 @@ def display_incident_list(incident_manager: IncidentManager):
     for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
         col = cols[i % 3]
         with col.container(border=True):
-            display_url = convert_drive_url_to_displayable(incident.get('foto_url'))
-            st.image(display_url, use_container_width=True)
+            
+            # <<< MUDANÇA IMPORTANTE E CORREÇÃO APLICADA AQUI >>>
+            
+            # 1. Pega a URL da foto. O método .get() é seguro e retorna None se a coluna não existir.
+            foto_url = incident.get('foto_url')
+
+            # 2. Verifica se a URL é uma string válida e não está vazia. pd.notna verifica contra None e NaN.
+            if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
+                display_url = convert_drive_url_to_displayable(foto_url)
+                # Adiciona uma verificação final para o caso de a conversão falhar
+                if display_url:
+                    st.image(display_url, use_container_width=True)
+                else:
+                    # Se a URL for inválida, mostra um placeholder ou nada
+                    st.caption("Imagem não disponível ou URL inválida")
+            else:
+                # Caso não haja foto, podemos exibir o número do alerta para preencher o espaço
+                st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
+                st.caption("Sem imagem anexada")
+
             st.subheader(incident.get('evento_resumo'))
             st.write(incident.get('o_que_aconteceu'))
             
             if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
-                # Chama o diálogo em vez de mudar de página
                 abrangencia_dialog(incident, incident_manager)
 
 
