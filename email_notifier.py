@@ -8,7 +8,8 @@ from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 
-
+# Adiciona o diretório raiz ao path para que os módulos do projeto sejam encontrados
+# quando o script for executado de forma autônoma.
 try:
     root_dir = os.path.dirname(os.path.abspath(__file__))
     if root_dir not in sys.path:
