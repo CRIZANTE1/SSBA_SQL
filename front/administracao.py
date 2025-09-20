@@ -1,14 +1,13 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-
 from gdrive.matrix_manager import MatrixManager as GlobalMatrixManager
 from operations.incident_manager import IncidentManager as GlobalIncidentManager
 from auth.auth_utils import check_permission
 from gdrive.google_api_manager import GoogleApiManager
 from operations.audit_logger import log_action
 from AI.api_Operation import PDFQA
+import gspread # Importação necessária para o update_user
 
 # --- FUNÇÕES DE LÓGICA PARA O NOVO FLUXO DE INCIDENTES ---
 
@@ -22,7 +21,6 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
 
     try:
         with st.spinner("Analisando documento com IA e fazendo upload dos arquivos..."):
-            # 1. Análise com IA
             api_op = PDFQA()
             prompt = f"""
             Você é um especialista em análise de incidentes de segurança. Extraia as seguintes informações do documento em anexo e retorne um JSON.
@@ -57,7 +55,6 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not analysis_result or not analysis_result.get('recomendacoes'):
                 raise ValueError("A análise da IA não retornou dados ou não gerou recomendações.")
 
-            # 2. Upload para o Google Drive
             from gdrive.config import CENTRAL_ALERTS_FOLDER_ID
             api_manager = GoogleApiManager()
 
@@ -67,7 +64,6 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not photo_url or not anexos_url:
                 raise ConnectionError("Falha no upload de um ou mais arquivos para o Google Drive.")
 
-            # 3. Salvar no estado da sessão para confirmação
             st.session_state.incident_data_for_confirmation = {
                 **analysis_result,
                 "numero_alerta": alert_number,
@@ -88,7 +84,6 @@ def display_incident_registration_tab():
     """
     st.header("Cadastrar Novo Alerta de Incidente")
 
-    # Etapa 1: Formulário de Upload
     with st.form("new_incident_form"):
         st.markdown("**1. Forneça os arquivos e informações iniciais**")
         alert_number = st.text_input("Número do Alerta", help="Ex: ALERTA-2025-01")
@@ -106,9 +101,9 @@ def display_incident_registration_tab():
     if st.session_state.get('error'):
         st.error(st.session_state.error)
 
-    # Etapa 2: Confirmação do Admin
     if st.session_state.get('analysis_complete'):
-        st.markdown("---_**2. Revise os dados extraídos pela IA e confirme**")
+        st.markdown("---")
+        st.subheader("2. Revise os dados extraídos pela IA e confirme")
         data = st.session_state.incident_data_for_confirmation
 
         with st.form("confirm_incident_form"):
@@ -130,12 +125,10 @@ def display_incident_registration_tab():
                     st.error("Todos os campos de texto e a lista de recomendações devem ser preenchidos.")
                 else:
                     with st.spinner("Salvando na Planilha Matriz..."):
-                        # Pega o ID da planilha matriz do gerenciador global
                         matrix_manager_global = GlobalMatrixManager()
                         matrix_spreadsheet_id = matrix_manager_global.spreadsheet.id
                         incident_manager = GlobalIncidentManager(matrix_spreadsheet_id)
                         
-                        # 1. Salva o incidente principal
                         new_incident_id = incident_manager.add_incident(
                             numero_alerta=data['numero_alerta'],
                             evento_resumo=edited_evento_resumo,
@@ -147,23 +140,19 @@ def display_incident_registration_tab():
                         )
 
                         if new_incident_id:
-                            # 2. Salva as ações de bloqueio (recomendações) em lote
                             recomendacoes_list = edited_recomendacoes["Descrição da Recomendação"].tolist()
                             success_actions = incident_manager.add_blocking_actions_batch(new_incident_id, recomendacoes_list)
                             
                             if success_actions:
                                 st.success(f"Alerta '{edited_evento_resumo}' e suas {len(recomendacoes_list)} recomendações foram salvos com sucesso!")
                                 log_action("REGISTER_INCIDENT", {"incident_summary": edited_evento_resumo, "alert_number": data['numero_alerta']})
-                                # Limpa o estado para permitir novo cadastro
                                 del st.session_state.analysis_complete
                                 del st.session_state.incident_data_for_confirmation
                                 st.rerun()
                             else:
-                                st.error("O incidente foi salvo, mas falhou ao salvar as recomendações. Verifique a aba 'acoes_bloqueio'.")
+                                st.error("O incidente foi salvo, mas falhou ao salvar as recomendações.")
                         else:
-                            st.error("Falha ao salvar o alerta na planilha. Verifique os logs.")
-
-# --- FUNÇÕES ANTIGAS (ADAPTADAS) ---
+                            st.error("Falha ao salvar o alerta na planilha.")
 
 @st.dialog("Gerenciar Usuário")
 def user_dialog(user_data=None):
@@ -224,8 +213,6 @@ def confirm_delete_dialog(user_email):
             st.rerun()
         else:
             st.error("Falha ao remover usuário.")
-
-# --- PÁGINA PRINCIPAL DE ADMINISTRAÇÃO ---
 
 def show_admin_page():
     if not check_permission(level='admin'):
