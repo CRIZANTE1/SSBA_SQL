@@ -1,3 +1,4 @@
+
 import os
 import json
 import streamlit as st
@@ -5,12 +6,13 @@ import logging
 
 logger = logging.getLogger('abrangencia_app.config')
 
+# --- LEITURA DAS CONFIGURAÇÕES A PARTIR DOS SECRETS ---
 
 SPREADSHEET_ID = None
 CENTRAL_ALERTS_FOLDER_ID = None
+CENTRAL_LOG_SHEET_NAME = "log_auditoria" 
 
 try:
-    # Tenta ler as configurações da seção [app_settings] do secrets.toml
     if hasattr(st, 'secrets') and 'app_settings' in st.secrets:
         SPREADSHEET_ID = st.secrets.app_settings.get("spreadsheet_id")
         CENTRAL_ALERTS_FOLDER_ID = st.secrets.app_settings.get("central_alerts_folder_id")
@@ -19,7 +21,6 @@ try:
             st.error("Erro Crítico: As configurações 'spreadsheet_id' e/ou 'central_alerts_folder_id' estão faltando em [app_settings] no seu arquivo secrets.toml.")
             logger.critical("Configurações essenciais (spreadsheet_id, central_alerts_folder_id) ausentes nos secrets.")
     else:
-        # Este bloco será executado se a seção [app_settings] não existir
         st.error("Erro Crítico: A seção [app_settings] não foi encontrada no seu arquivo secrets.toml.")
         logger.critical("Seção [app_settings] não encontrada nos secrets.")
 
@@ -31,8 +32,7 @@ except Exception as e:
 
 def get_credentials_dict():
     """
-    Retorna as credenciais do serviço do Google, seja do Streamlit Cloud,
-    do GitHub Actions ou de um arquivo local.
+    Retorna as credenciais do serviço do Google.
     """
     # 1. Tenta carregar do Streamlit Cloud Secrets
     if hasattr(st, 'runtime') and st.runtime.exists():
@@ -58,7 +58,6 @@ def get_credentials_dict():
 
     # 3. Tenta carregar de um arquivo local (para desenvolvimento)
     logger.info("Tentando carregar credenciais do arquivo local 'credentials.json' (modo de desenvolvimento).")
-    # O caminho é relativo à raiz do projeto, onde o script principal (SSAB.py) é executado.
     credentials_path = os.path.join(os.path.dirname(__file__), '..', 'credentials.json')
     try:
         with open(credentials_path, 'r') as f:
