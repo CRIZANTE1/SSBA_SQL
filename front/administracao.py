@@ -214,10 +214,10 @@ def show_admin_page():
         st.error("Acesso restrito ao Administrador Global.")
         st.stop()
     
-    # <<< MUDANÇA IMPORTANTE: Abas simplificadas >>>
-    tab_incident, tab_users, tab_logs = st.tabs([
-        "Cadastrar Alerta", "Gerenciar Usuários", "Logs de Auditoria"
-    ])
+   
+    tab_incident, tab_users, tab_requests, tab_logs = st.tabs([
+    "Cadastrar Alerta", "Gerenciar Usuários", "Solicitações de Acesso", "Logs de Auditoria"
+])
 
     with tab_incident:
         display_incident_registration_tab()
@@ -270,3 +270,36 @@ def show_admin_page():
             )
         else:
             st.info("Nenhum registro de log encontrado.")
+
+    with tab_requests:
+        st.header("Solicitações de Acesso Pendentes")
+        matrix_manager = get_matrix_manager()
+        pending_requests_df = matrix_manager.get_pending_access_requests()
+    
+        if pending_requests_df.empty:
+            st.info("Nenhuma solicitação de acesso pendente no momento.")
+        else:
+            st.write("Aprove os novos usuários definindo um papel (role) e clicando em 'Aprovar'.")
+            
+            for index, row in pending_requests_df.iterrows():
+                with st.container(border=True):
+                    col1, col2, col3, col4 = st.columns([2, 2, 1.5, 1.5])
+                    col1.text_input("E-mail", value=row['email'], disabled=True, key=f"email_{index}")
+                    col2.text_input("Unidade", value=row['unidade_solicitada'], disabled=True, key=f"unit_{index}")
+                    
+                    # Dropdown para selecionar o papel
+                    role_to_assign = col3.selectbox(
+                        "Definir Papel",
+                        options=["viewer", "editor", "admin"],
+                        index=0, # 'viewer' como padrão
+                        key=f"role_{index}"
+                    )
+                    
+                    # Botão de aprovação
+                    if col4.button("Aprovar Acesso", key=f"approve_{index}", type="primary"):
+                        with st.spinner(f"Aprovando {row['email']}..."):
+                            if matrix_manager.approve_access_request(row['email'], role_to_assign):
+                                st.success(f"Usuário {row['email']} aprovado e adicionado ao sistema!")
+                                st.rerun()
+                            else:
+                                st.error(f"Falha ao aprovar {row['email']}.")
