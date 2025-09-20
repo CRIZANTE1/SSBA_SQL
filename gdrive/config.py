@@ -10,6 +10,9 @@ MATRIX_SPREADSHEET_ID = "15DCVTsjERd2_LyXMVla6V2BeO1g_uZbvLHzecT-eZts"
 # ID da Pasta Raiz no Google Drive onde todas as pastas das unidades serão criadas.
 CENTRAL_DRIVE_FOLDER_ID = "1klJot9630Hxo2vWLSDGQH-QC3yux5KT5"
 
+# ID da Pasta no Google Drive para armazenar anexos e fotos de alertas de incidentes.
+CENTRAL_ALERTS_FOLDER_ID = "ID_DA_SUA_PASTA_DE_ALERTAS_AQUI" # <-- IMPORTANTE: Substitua pelo ID real
+
 # Nome da aba na planilha matriz para registrar os logs centralizados.
 CENTRAL_LOG_SHEET_NAME = "log_auditoria"
 

@@ -1,250 +1,170 @@
+
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import datetime
+
 from gdrive.matrix_manager import MatrixManager as GlobalMatrixManager
-from operations.employee import EmployeeManager
-from operations.company_docs import CompanyDocsManager
+from operations.incident_manager import IncidentManager as GlobalIncidentManager
 from auth.auth_utils import check_permission
-from ui.metrics import display_minimalist_metrics
 from gdrive.google_api_manager import GoogleApiManager
 from operations.audit_logger import log_action
+from AI.api_Operation import PDFQA
 
-@st.cache_data(ttl=300)
-def load_aggregated_data():
+# --- FUNÇÕES DE LÓGICA PARA O NOVO FLUXO DE INCIDENTES ---
+
+def analyze_incident_document(attachment_file, photo_file, alert_number):
     """
-    Carrega e agrega dados de TODAS as unidades, incluindo a conversão e tratamento
-    de colunas de data. Retorna uma tupla de 5 DataFrames limpos.
+    Orquestra a análise do documento de incidente com IA e o upload de arquivos.
     """
-    progress_bar = st.progress(0, text="Carregando dados consolidados de todas as unidades...")
-    matrix_manager_global = GlobalMatrixManager()
-    all_units = matrix_manager_global.get_all_units()
-    
-    aggregated_data = {
-        "companies": [], "employees": [], "asos": [], "trainings": [], "company_docs": []
-    }
-    
-    total_units = len(all_units)
-    for i, unit in enumerate(all_units):
-        unit_name, spreadsheet_id, folder_id = unit.get('nome_unidade'), unit.get('spreadsheet_id'), unit.get('folder_id')
-        progress_bar.progress((i + 1) / total_units, text=f"Lendo unidade: {unit_name}...")
-        
-        if not spreadsheet_id or not unit_name:
-            continue
-            
-        try:
-            # Carrega os managers da unidade para acessar seus DataFrames já processados
-            temp_employee_manager = EmployeeManager(spreadsheet_id, folder_id)
-            temp_docs_manager = CompanyDocsManager(spreadsheet_id, folder_id)
-            
-            data_map = {
-                "companies": temp_employee_manager.companies_df,
-                "employees": temp_employee_manager.employees_df,
-                "asos": temp_employee_manager.aso_df,
-                "trainings": temp_employee_manager.training_df,
-                "company_docs": temp_docs_manager.docs_df
+    st.session_state.processing = True
+    st.session_state.error = None
+    st.session_state.analysis_complete = False
+
+    try:
+        with st.spinner("Analisando documento com IA e fazendo upload dos arquivos..."):
+            # 1. Análise com IA
+            api_op = PDFQA()
+            prompt = f"""
+            Você é um especialista em análise de incidentes de segurança. Extraia as seguintes informações do documento em anexo e retorne um JSON.
+
+            - evento_resumo: Um título curto e informativo para o evento (ex: "Tombamento de caminhão em mina").
+            - data_evento: A data em que o evento ocorreu, no formato YYYY-MM-DD.
+            - o_que_aconteceu: Um parágrafo detalhado descrevendo o que aconteceu.
+            - por_que_aconteceu: Um parágrafo descrevendo as causas fundamentais do incidente.
+            - recomendacoes: Uma lista de strings, onde cada string é uma ação de bloqueio ou recomendação específica para evitar a recorrência deste incidente.
+
+            Exemplo de JSON de saída:
+            {{
+                "evento_resumo": "Tombamento de caminhão em mina",
+                "data_evento": "2025-09-20",
+                "o_que_aconteceu": "O caminhão modelo X tombou durante a subida da rampa Y.",
+                "por_que_aconteceu": "A rampa estava com inclinação acima do recomendado e havia óleo na pista.",
+                "recomendacoes": [
+                    "Revisar e corrigir a inclinação de todas as rampas de acesso.",
+                    "Implementar procedimento de limpeza de pista a cada 2 horas.",
+                    "Adicionar sensores de inclinação nos caminhões."
+                ]
+            }}
+
+            Responda APENAS com o bloco de código JSON.
+            """
+            analysis_result, _ = api_op.answer_question(
+                files=[attachment_file],
+                question=prompt,
+                task_type='extraction'
+            )
+
+            if not analysis_result or not analysis_result.get('recomendacoes'):
+                raise ValueError("A análise da IA não retornou dados ou não gerou recomendações.")
+
+            # 2. Upload para o Google Drive
+            from gdrive.config import CENTRAL_ALERTS_FOLDER_ID
+            api_manager = GoogleApiManager()
+
+            photo_url = api_manager.upload_file(CENTRAL_ALERTS_FOLDER_ID, photo_file, f"foto_{alert_number}.jpg")
+            anexos_url = api_manager.upload_file(CENTRAL_ALERTS_FOLDER_ID, attachment_file, f"anexo_{alert_number}.pdf")
+
+            if not photo_url or not anexos_url:
+                raise ConnectionError("Falha no upload de um ou mais arquivos para o Google Drive.")
+
+            # 3. Salvar no estado da sessão para confirmação
+            st.session_state.incident_data_for_confirmation = {
+                **analysis_result,
+                "numero_alerta": alert_number,
+                "foto_url": photo_url,
+                "anexos_url": anexos_url,
+                "photo_bytes": photo_file.getvalue()
             }
+            st.session_state.analysis_complete = True
 
-            for key, df in data_map.items():
-                if not df.empty:
-                    df_copy = df.copy()
-                    df_copy['unidade'] = unit_name
-                    aggregated_data[key].append(df_copy)
-                    
-        except Exception as e:
-            st.warning(f"Não foi possível carregar dados da unidade '{unit_name}': {e}")
+    except Exception as e:
+        st.session_state.error = f"Ocorreu um erro: {e}"
+    finally:
+        st.session_state.processing = False
 
-    progress_bar.empty()
-    
-    # Concatena todos os DataFrames de uma vez
-    final_dfs = {
-        key: (pd.concat(value, ignore_index=True) if value else pd.DataFrame()) 
-        for key, value in aggregated_data.items()
-    }
-    
-    # ASOs
-    if not final_dfs["asos"].empty and 'vencimento' in final_dfs["asos"].columns:
-        final_dfs["asos"]['vencimento'] = pd.to_datetime(final_dfs["asos"]['vencimento'], errors='coerce')
-        final_dfs["asos"]['data_aso'] = pd.to_datetime(final_dfs["asos"]['data_aso'], errors='coerce')
-
-    # Treinamentos
-    if not final_dfs["trainings"].empty and 'vencimento' in final_dfs["trainings"].columns:
-        final_dfs["trainings"]['vencimento'] = pd.to_datetime(final_dfs["trainings"]['vencimento'], errors='coerce')
-        final_dfs["trainings"]['data'] = pd.to_datetime(final_dfs["trainings"]['data'], errors='coerce')
-
-    # Documentos da Empresa
-    if not final_dfs["company_docs"].empty and 'vencimento' in final_dfs["company_docs"].columns:
-        final_dfs["company_docs"]['vencimento'] = pd.to_datetime(final_dfs["company_docs"]['vencimento'], errors='coerce')
-        final_dfs["company_docs"]['data_emissao'] = pd.to_datetime(final_dfs["company_docs"]['data_emissao'], errors='coerce')
-
-    return (
-        final_dfs["companies"], 
-        final_dfs["employees"], 
-        final_dfs["asos"], 
-        final_dfs["trainings"], 
-        final_dfs["company_docs"]
-    )
-
-
-def display_global_summary_dashboard(companies_df, employees_df, asos_df, trainings_df, company_docs_df):
+def display_incident_registration_tab():
     """
-    Calcula e exibe o dashboard de resumo executivo com lógica robusta para tratamento de dados,
-    cálculo de pendências e detalhamento da unidade mais crítica.
+    Exibe a aba e o fluxo completo para cadastrar um novo alerta de incidente.
     """
-    st.header("Dashboard de Resumo Executivo Global")
+    st.header("Cadastrar Novo Alerta de Incidente")
 
-    if companies_df.empty:
-        st.info("Nenhuma empresa encontrada em todas as unidades. Não há dados para exibir.")
-        return
-
-    # --- 1. Filtra para entidades ATIVAS primeiro ---
-    active_companies = companies_df[companies_df['status'].str.lower() == 'ativo'].copy()
-    if active_companies.empty:
-        st.info("Nenhuma empresa ativa encontrada. O dashboard considera apenas entidades ativas.")
-        return
-    
-    active_employees = pd.DataFrame()
-    if not employees_df.empty:
-        active_employees = employees_df[employees_df['status'].str.lower() == 'ativo'].copy()
-    
-    if active_employees.empty:
-        st.warning("Nenhum funcionário ativo encontrado. Pendências de ASOs e Treinamentos não serão calculadas.")
-
-    # --- 2. Métricas Gerais ---
-    total_units = companies_df['unidade'].nunique()
-    total_active_companies = len(active_companies)
-    total_active_employees = len(active_employees)
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Unidades Operacionais", f"{total_units}")
-    col2.metric("Total de Empresas Ativas", total_active_companies)
-    col3.metric("Total de Funcionários Ativos", total_active_employees)
-    st.divider()
-
-    # --- 3. Cálculo de Pendências (Lógica Robusta) ---
-    today = date.today()
-    expired_asos, expired_trainings, expired_company_docs = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-    if not asos_df.empty and not active_employees.empty:
-        asos_actives = asos_df[asos_df['funcionario_id'].isin(active_employees['id'])].copy()
-        asos_actives.dropna(subset=['vencimento'], inplace=True)
-        if not asos_actives.empty:
-            latest_asos = asos_actives.sort_values('data_aso', ascending=False).groupby(['funcionario_id', 'tipo_aso']).head(1)
-            expired_asos = latest_asos[latest_asos['vencimento'].dt.date < today]
-
-    if not trainings_df.empty and not active_employees.empty:
-        trainings_actives = trainings_df[trainings_df['funcionario_id'].isin(active_employees['id'])].copy()
-        trainings_actives.dropna(subset=['vencimento'], inplace=True)
-        if not trainings_actives.empty:
-            latest_trainings = trainings_actives.sort_values('data', ascending=False).groupby(['funcionario_id', 'norma']).head(1)
-            expired_trainings = latest_trainings[latest_trainings['vencimento'].dt.date < today]
-
-    if not company_docs_df.empty:
-        docs_actives = company_docs_df[company_docs_df['empresa_id'].isin(active_companies['id'])].copy()
-        docs_actives.dropna(subset=['vencimento'], inplace=True)
-        if not docs_actives.empty:
-            latest_docs = docs_actives.sort_values('data_emissao', ascending=False).groupby(['empresa_id', 'tipo_documento']).head(1)
-            expired_company_docs = latest_docs[latest_docs['vencimento'].dt.date < today]
-
-    total_pendencies = len(expired_asos) + len(expired_trainings) + len(expired_company_docs)
-    if total_pendencies == 0:
-        st.success("🎉 Parabéns! Nenhuma pendência de vencimento encontrada em todas as unidades ativas.")
-        return
-
-    # --- 4. Métricas por Categoria ---
-    st.subheader("Total de Pendências por Categoria (Entidades Ativas)")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("🩺 ASOs Vencidos", len(expired_asos))
-    col2.metric("🎓 Treinamentos Vencidos", len(expired_trainings))
-    col3.metric("📄 Docs. Empresa Vencidos", len(expired_company_docs))
-    st.divider()
-
-    # --- 5. Consolidação e Gráfico de Barras (LÓGICA FINAL E CORRIGIDA) ---
-    st.subheader("Gráfico de Pendências por Unidade Operacional")
-
-    # Coleta todas as contagens em uma lista
-    counts_list = []
-    if not expired_asos.empty:
-        counts_list.append(expired_asos.groupby('unidade').size().rename("ASOs Vencidos"))
-    if not expired_trainings.empty:
-        counts_list.append(expired_trainings.groupby('unidade').size().rename("Treinamentos Vencidos"))
-    if not expired_company_docs.empty:
-        counts_list.append(expired_company_docs.groupby('unidade').size().rename("Docs. Empresa Vencidos"))
-    
-    # Concatena apenas se houver o que contar
-    if not counts_list:
-        st.info("Nenhuma pendência encontrada para gerar o gráfico.")
-        return
-
-    df_consolidated = pd.concat(counts_list, axis=1).fillna(0).astype(int)
-    
-    # **A CORREÇÃO CRÍTICA ESTÁ AQUI**
-    # Garante que qualquer linha com soma zero seja removida ANTES de qualquer outra operação
-    df_consolidated = df_consolidated[df_consolidated.sum(axis=1) > 0]
-
-    # Agora, verifica se o DataFrame ainda tem dados APÓS a remoção dos zeros
-    if df_consolidated.empty:
-        # Este caso ocorre se havia pendências, mas elas foram filtradas (caso raro)
-        # A mensagem de sucesso no início já deve ter capturado isso, mas é uma segurança extra.
-        st.success("Todas as pendências foram resolvidas ou filtradas. Gráfico não será exibido.")
-        return
-
-    st.bar_chart(df_consolidated)
-    with st.expander("Ver tabela de dados de pendências consolidada"):
-        df_with_total = df_consolidated.copy()
-        df_with_total['Total'] = df_with_total.sum(axis=1)
-        st.dataframe(df_with_total.sort_values(by='Total', ascending=False), use_container_width=True)
-
-    # --- 6. Detalhamento da Unidade Mais Crítica (Lógica já corrigida anteriormente) ---
-    most_critical_unit = df_consolidated.sum(axis=1).idxmax()
-    st.subheader(f"🔍 Detalhes da Unidade Mais Crítica: {most_critical_unit}")
-
-    # A lógica abaixo já foi corrigida e está correta, dependendo de um df_consolidated limpo.
-    unit_active_companies = active_companies[active_companies['unidade'] == most_critical_unit]
-    unit_active_employees = active_employees[active_employees['unidade'] == most_critical_unit]
-
-    employee_to_company_id = unit_active_employees.set_index('id')['empresa_id']
-    company_id_to_name = unit_active_companies.set_index('id')['nome']
-    
-    pendencies_by_company = {}
-
-    # Detalhamento de ASOs
-    if not expired_asos.empty:
-        expired_asos_unit = expired_asos[expired_asos['unidade'] == most_critical_unit].copy()
-        if not expired_asos_unit.empty:
-            expired_asos_unit['empresa_id'] = expired_asos_unit['funcionario_id'].map(employee_to_company_id)
-            expired_asos_unit['nome_empresa'] = expired_asos_unit['empresa_id'].map(company_id_to_name)
-            expired_asos_unit.dropna(subset=['nome_empresa'], inplace=True)
-            aso_counts = expired_asos_unit.groupby('nome_empresa').size().to_dict()
-            for comp, count in aso_counts.items():
-                pendencies_by_company[comp] = pendencies_by_company.get(comp, 0) + count
-
-    # Detalhamento de Treinamentos
-    if not expired_trainings.empty:
-        expired_trainings_unit = expired_trainings[expired_trainings['unidade'] == most_critical_unit].copy()
-        if not expired_trainings_unit.empty:
-            expired_trainings_unit['empresa_id'] = expired_trainings_unit['funcionario_id'].map(employee_to_company_id)
-            expired_trainings_unit['nome_empresa'] = expired_trainings_unit['empresa_id'].map(company_id_to_name)
-            expired_trainings_unit.dropna(subset=['nome_empresa'], inplace=True)
-            training_counts = expired_trainings_unit.groupby('nome_empresa').size().to_dict()
-            for comp, count in training_counts.items():
-                pendencies_by_company[comp] = pendencies_by_company.get(comp, 0) + count
-
-    # Detalhamento de Documentos da Empresa
-    if not expired_company_docs.empty:
-        expired_docs_unit = expired_company_docs[expired_company_docs['unidade'] == most_critical_unit].copy()
-        if not expired_docs_unit.empty:
-            expired_docs_unit['nome_empresa'] = expired_docs_unit['empresa_id'].map(company_id_to_name)
-            expired_docs_unit.dropna(subset=['nome_empresa'], inplace=True)
-            doc_counts = expired_docs_unit.groupby('nome_empresa').size().to_dict()
-            for comp, count in doc_counts.items():
-                pendencies_by_company[comp] = pendencies_by_company.get(comp, 0) + count
-
-    if pendencies_by_company:
-        company_pendencies_df = pd.DataFrame(list(pendencies_by_company.items()), columns=['Empresa', 'Nº de Pendências'])
-        st.dataframe(company_pendencies_df.sort_values(by='Nº de Pendências', ascending=False), use_container_width=True, hide_index=True)
-    else:
-        st.info(f"Nenhuma pendência encontrada na unidade '{most_critical_unit}'.")
+    # Etapa 1: Formulário de Upload
+    with st.form("new_incident_form"):
+        st.markdown("**1. Forneça os arquivos e informações iniciais**")
+        alert_number = st.text_input("Número do Alerta", help="Ex: ALERTA-2025-01")
+        attachment_file = st.file_uploader("Documento de Anexo (PDF/DOCX)", type=["pdf", "docx"])
+        photo_file = st.file_uploader("Foto do Incidente (JPG/PNG)", type=["jpg", "png"])
         
+        submitted = st.form_submit_button("Analisar e Fazer Upload", type="primary")
+
+        if submitted:
+            if not all([alert_number, attachment_file, photo_file]):
+                st.warning("Por favor, preencha todos os campos e anexe os arquivos.")
+            else:
+                analyze_incident_document(attachment_file, photo_file, alert_number)
+    
+    if st.session_state.get('error'):
+        st.error(st.session_state.error)
+
+    # Etapa 2: Confirmação do Admin
+    if st.session_state.get('analysis_complete'):
+        st.markdown("---_**2. Revise os dados extraídos pela IA e confirme**")
+        data = st.session_state.incident_data_for_confirmation
+
+        with st.form("confirm_incident_form"):
+            st.image(data['photo_bytes'], caption="Foto do Incidente", width=300)
+
+            edited_evento_resumo = st.text_input("Resumo do Evento", value=data.get('evento_resumo', ''))
+            edited_data_evento = st.date_input("Data do Evento", value=datetime.strptime(data.get('data_evento'), '%Y-%m-%d').date() if data.get('data_evento') else None)
+            edited_o_que_aconteceu = st.text_area("O que aconteceu?", value=data.get('o_que_aconteceu', ''), height=150)
+            edited_por_que_aconteceu = st.text_area("Por que aconteceu?", value=data.get('por_que_aconteceu', ''), height=150)
+            
+            st.markdown("##### Recomendações / Ações de Bloqueio Sugeridas pela IA")
+            recomendacoes_df = pd.DataFrame(data.get('recomendacoes', []), columns=["Descrição da Recomendação"])
+            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", use_container_width=True)
+
+            confirm_button = st.form_submit_button("Confirmar e Salvar Alerta Completo")
+
+            if confirm_button:
+                if not all([edited_evento_resumo, edited_data_evento, edited_o_que_aconteceu, edited_por_que_aconteceu]) or edited_recomendacoes.empty:
+                    st.error("Todos os campos de texto e a lista de recomendações devem ser preenchidos.")
+                else:
+                    with st.spinner("Salvando na Planilha Matriz..."):
+                        # Pega o ID da planilha matriz do gerenciador global
+                        matrix_manager_global = GlobalMatrixManager()
+                        matrix_spreadsheet_id = matrix_manager_global.spreadsheet.id
+                        incident_manager = GlobalIncidentManager(matrix_spreadsheet_id)
+                        
+                        # 1. Salva o incidente principal
+                        new_incident_id = incident_manager.add_incident(
+                            numero_alerta=data['numero_alerta'],
+                            evento_resumo=edited_evento_resumo,
+                            data_evento=edited_data_evento,
+                            o_que_aconteceu=edited_o_que_aconteceu,
+                            por_que_aconteceu=edited_por_que_aconteceu,
+                            foto_url=data['foto_url'],
+                            anexos_url=data['anexos_url']
+                        )
+
+                        if new_incident_id:
+                            # 2. Salva as ações de bloqueio (recomendações) em lote
+                            recomendacoes_list = edited_recomendacoes["Descrição da Recomendação"].tolist()
+                            success_actions = incident_manager.add_blocking_actions_batch(new_incident_id, recomendacoes_list)
+                            
+                            if success_actions:
+                                st.success(f"Alerta '{edited_evento_resumo}' e suas {len(recomendacoes_list)} recomendações foram salvos com sucesso!")
+                                log_action("REGISTER_INCIDENT", {"incident_summary": edited_evento_resumo, "alert_number": data['numero_alerta']})
+                                # Limpa o estado para permitir novo cadastro
+                                del st.session_state.analysis_complete
+                                del st.session_state.incident_data_for_confirmation
+                                st.rerun()
+                            else:
+                                st.error("O incidente foi salvo, mas falhou ao salvar as recomendações. Verifique a aba 'acoes_bloqueio'.")
+                        else:
+                            st.error("Falha ao salvar o alerta na planilha. Verifique os logs.")
+
+# --- FUNÇÕES ANTIGAS (ADAPTADAS) ---
+
 @st.dialog("Gerenciar Usuário")
 def user_dialog(user_data=None):
     is_edit_mode = user_data is not None
@@ -268,7 +188,7 @@ def user_dialog(user_data=None):
 
         if st.form_submit_button("Salvar"):
             if not email or not nome:
-                st.error("E-mail and Nome são obrigatórios.")
+                st.error("E-mail e Nome são obrigatórios.")
                 return
 
             if is_edit_mode:
@@ -289,7 +209,6 @@ def user_dialog(user_data=None):
                     else:
                         st.error("Falha ao adicionar usuário.")
 
-# --- DIÁLOGO PARA CONFIRMAR EXCLUSÃO ---
 @st.dialog("Confirmar Exclusão")
 def confirm_delete_dialog(user_email):
     st.warning(f"Você tem certeza que deseja remover permanentemente o usuário **{user_email}**?")
@@ -305,290 +224,90 @@ def confirm_delete_dialog(user_email):
             st.rerun()
         else:
             st.error("Falha ao remover usuário.")
-        
+
+# --- PÁGINA PRINCIPAL DE ADMINISTRAÇÃO ---
+
 def show_admin_page():
     if not check_permission(level='admin'):
         st.stop()
 
     st.title("🚀 Painel de Administração")
 
-    is_global_view = st.session_state.get('unit_name') == 'Global'
-    
-    if is_global_view:
-        tab_list = ["Dashboard Global", "Logs de Auditoria", "Gerenciamento Global"]
-        tab_dashboard, tab_logs, tab_global_manage = st.tabs(tab_list)
-
-        with tab_dashboard:
-            companies, employees, asos, trainings, company_docs = load_aggregated_data()
-            display_global_summary_dashboard(companies, employees, asos, trainings, company_docs)
-
-        with tab_logs:
-            st.header("📜 Logs de Auditoria do Sistema")
-            matrix_manager_global = GlobalMatrixManager()
-            logs_df = matrix_manager_global.get_audit_logs()
-            if not logs_df.empty:
-                st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), width='stretch', hide_index=True)
-            else:
-                st.info("Nenhum registro de log encontrado.")
-        
-        with tab_global_manage:
-            st.header("Gerenciamento Global do Sistema")
-            matrix_manager_global = GlobalMatrixManager()
-
-            with st.expander("Provisionar Nova Unidade Operacional"):
-                with st.form("provision_form"):
-                    new_unit_name = st.text_input("Nome da Nova Unidade")
-                    if st.form_submit_button("🚀 Iniciar Provisionamento"):
-                        if not new_unit_name:
-                            st.error("O nome da unidade não pode ser vazio.")
-                        elif matrix_manager_global.get_unit_info(new_unit_name):
-                            st.error(f"Erro: Uma unidade com o nome '{new_unit_name}' já existe.")
-                        else:
-                            with st.spinner(f"Criando infraestrutura para '{new_unit_name}'..."):
-                                try:
-                                    from gdrive.config import CENTRAL_DRIVE_FOLDER_ID
-                                    api_manager = GoogleApiManager()
-                                    st.write("1/4 - Criando pasta...")
-                                    new_folder_id = api_manager.create_folder(f"SEGMA-SIS - {new_unit_name}", CENTRAL_DRIVE_FOLDER_ID)
-                                    if not new_folder_id: raise Exception("Falha ao criar pasta.")
-                                    st.write("2/4 - Criando Planilha...")
-                                    new_sheet_id = api_manager.create_spreadsheet(f"SEGMA-SIS - Dados - {new_unit_name}", new_folder_id)
-                                    if not new_sheet_id: raise Exception("Falha ao criar Planilha.")
-                                    st.write("3/4 - Configurando abas...")
-                                    if not api_manager.setup_sheets_from_config(new_sheet_id, "sheets_config.yaml"):
-                                        raise Exception("Falha ao configurar as abas.")
-                                    st.write("4/4 - Registrando na Matriz...")
-                                    if not matrix_manager_global.add_unit([new_unit_name, new_sheet_id, new_folder_id]):
-                                        raise Exception("Falha ao registrar na Planilha Matriz.")
-                                    log_action("PROVISION_UNIT", {"unit_name": new_unit_name, "sheet_id": new_sheet_id})
-                                    st.success(f"Unidade '{new_unit_name}' provisionada com sucesso!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Ocorreu um erro: {e}")
-            
-            st.divider()
-            st.subheader("Gerenciar Usuários do Sistema")
-
-            if st.button("➕ Adicionar Novo Usuário"):
-                user_dialog()
-
-            all_users_df = pd.DataFrame(matrix_manager_global.get_all_users())
-            if not all_users_df.empty:
-                all_users_df["delete_action"] = False
-                edited_df = st.data_editor(
-                    all_users_df,
-                    column_config={"delete_action": st.column_config.CheckboxColumn("Excluir?")},
-                    disabled=["email", "nome", "role", "unidade_associada"],
-                    width='stretch', # <-- CORREÇÃO
-                    hide_index=True, key="user_editor"
-                )
-                
-                users_to_delete = edited_df[edited_df['delete_action']]
-                if not users_to_delete.empty:
-                    user_email = users_to_delete.iloc[0]['email']
-                    confirm_delete_dialog(user_email)
-            else:
-                st.info("Nenhum usuário cadastrado.")
+    if st.session_state.get('unit_name') != 'Global':
+        st.warning("Acesso restrito ao Administrador Global.")
         st.stop()
 
-    # --- CÓDIGO PARA VISÃO DE UNIDADE ESPECÍFICA ---
-    else:
-        unit_name = st.session_state.get('unit_name', 'Nenhuma')
-        st.header(f"Gerenciamento da Unidade: '{unit_name}'")
+    tab_list = [
+        "Cadastrar Novo Alerta de Incidente",
+        "Logs de Auditoria",
+        "Gerenciamento Global"
+    ]
+    tab_incident, tab_logs, tab_global_manage = st.tabs(tab_list)
 
-        if not st.session_state.get('managers_initialized'):
-            st.warning("Aguardando a inicialização dos dados da unidade...")
-            st.stop()
+    with tab_incident:
+        display_incident_registration_tab()
 
-        employee_manager = st.session_state.employee_manager
-        matrix_manager_unidade = st.session_state.matrix_manager_unidade
-        nr_analyzer = st.session_state.nr_analyzer
-
-        st.subheader("Visão Geral de Pendências da Unidade")
-        display_minimalist_metrics(employee_manager)
-        st.divider()
-
-        tab_list_unidade = ["Gerenciar Empresas", "Gerenciar Funcionários", "Gerenciar Matriz", "Assistente de Matriz (IA)"]
-        tab_empresa, tab_funcionario, tab_matriz, tab_recomendacoes = st.tabs(tab_list_unidade)
-
-        with tab_empresa:
-            with st.expander("➕ Cadastrar Nova Empresa"):
-                with st.form("form_add_company", clear_on_submit=True):
-                    company_name = st.text_input("Nome da Empresa")
-                    company_cnpj = st.text_input("CNPJ")
-                    if st.form_submit_button("Cadastrar Empresa"):
-                        if company_name and company_cnpj:
-                            _, message = employee_manager.add_company(company_name, company_cnpj)
-                            st.success(message)
-                            st.rerun()
-                        else:
-                            st.warning("Preencha todos os campos.")
-            st.subheader("Empresas Cadastradas na Unidade")
-            show_archived = st.toggle("Mostrar empresas arquivadas")
-            df_to_show = employee_manager.companies_df if show_archived else employee_manager.companies_df[employee_manager.companies_df['status'].str.lower() == 'ativo']
-            if not df_to_show.empty:
-                for _, row in df_to_show.sort_values('nome').iterrows():
-                    with st.container(border=True):
-                        c1, c2, c3 = st.columns([3,2,1])
-                        c1.markdown(f"**{row['nome']}**")
-                        c2.caption(f"CNPJ: {row['cnpj']} | Status: {row['status']}")
-                        with c3:
-                            if str(row['status']).lower() == 'ativo':
-                                if st.button("Arquivar", key=f"archive_{row['id']}"):
-                                    employee_manager.archive_company(row['id'])
-                                    st.rerun()
-                            else:
-                                if st.button("Reativar", key=f"unarchive_{row['id']}", type="primary"):
-                                    employee_manager.unarchive_company(row['id'])
-                                    st.rerun()
-            else:
-                st.info("Nenhuma empresa para exibir.")
-
+    with tab_logs:
+        st.header("📜 Logs de Auditoria do Sistema")
+        matrix_manager_global = GlobalMatrixManager()
+        logs_df = matrix_manager_global.get_audit_logs()
+        if not logs_df.empty:
+            st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum registro de log encontrado.")
     
-    with tab_funcionario:
-        with st.expander("➕ Cadastrar Novo Funcionário"):
-            active_companies = employee_manager.companies_df[employee_manager.companies_df['status'].str.lower() == 'ativo']
-            if active_companies.empty:
-                st.warning("Cadastre ou reative uma empresa primeiro.")
-            else:
-                company_id = st.selectbox("Selecione a Empresa", options=active_companies['id'], format_func=employee_manager.get_company_name)
-                with st.form("form_add_employee", clear_on_submit=True):
-                    name = st.text_input("Nome do Funcionário")
-                    role = st.text_input("Cargo")
-                    adm_date = st.date_input("Data de Admissão")
-                    if st.form_submit_button("Cadastrar"):
-                        if all([name, role, adm_date, company_id]):
-                            _, msg = employee_manager.add_employee(name, role, adm_date, company_id)
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error("Todos os campos são obrigatórios.")
-        
-        st.subheader("Funcionários Cadastrados na Unidade")
-        company_filter = st.selectbox("Filtrar por Empresa", options=['Todas'] + employee_manager.companies_df['id'].tolist(), format_func=lambda x: 'Todas' if x == 'Todas' else employee_manager.get_company_name(x))
-        
-        employees_to_show = employee_manager.employees_df
-        if company_filter != 'Todas':
-            employees_to_show = employees_to_show[employees_to_show['empresa_id'] == str(company_filter)]
+    with tab_global_manage:
+        st.header("Gerenciamento Global do Sistema")
+        matrix_manager_global = GlobalMatrixManager()
 
-        if employees_to_show.empty:
-            st.info("Nenhum funcionário encontrado para a empresa selecionada.")
-        else:
-            for _, row in employees_to_show.sort_values('nome').iterrows():
-                 with st.container(border=True):
-                    col1, col2, col3 = st.columns([3, 2, 1])
-                    col1.markdown(f"**{row['nome']}**")
-                    col2.caption(f"Cargo: {row['cargo']} | Status: {row['status']}")
-                    with col3:
-                        if str(row['status']).lower() == 'ativo':
-                            if st.button("Arquivar", key=f"archive_emp_{row['id']}", use_container_width=True):
-                                employee_manager.archive_employee(row['id'])
+        with st.expander("Provisionar Nova Unidade Operacional"):
+            with st.form("provision_form"):
+                new_unit_name = st.text_input("Nome da Nova Unidade")
+                if st.form_submit_button("🚀 Iniciar Provisionamento"):
+                    if not new_unit_name:
+                        st.error("O nome da unidade não pode ser vazio.")
+                    elif matrix_manager_global.get_unit_info(new_unit_name):
+                        st.error(f"Erro: Uma unidade com o nome '{new_unit_name}' já existe.")
+                    else:
+                        with st.spinner(f"Criando infraestrutura para '{new_unit_name}'..."):
+                            try:
+                                from gdrive.config import CENTRAL_DRIVE_FOLDER_ID
+                                api_manager = GoogleApiManager()
+                                st.write("1/4 - Criando pasta...")
+                                new_folder_id = api_manager.create_folder(f"ABRANGENCIA - {new_unit_name}", CENTRAL_DRIVE_FOLDER_ID)
+                                if not new_folder_id: raise Exception("Falha ao criar pasta.")
+                                st.write("2/4 - Criando Planilha...")
+                                new_sheet_id = api_manager.create_spreadsheet(f"ABRANGENCIA - Dados - {new_unit_name}", new_folder_id)
+                                if not new_sheet_id: raise Exception("Falha ao criar Planilha.")
+                                st.write("3/4 - Configurando abas...")
+                                if not api_manager.setup_sheets_from_config(new_sheet_id, "sheets_config.yaml"):
+                                    raise Exception("Falha ao configurar as abas.")
+                                st.write("4/4 - Registrando na Matriz...")
+                                if not matrix_manager_global.add_unit([new_unit_name, new_sheet_id, new_folder_id]):
+                                    raise Exception("Falha ao registrar na Planilha Matriz.")
+                                log_action("PROVISION_UNIT", {"unit_name": new_unit_name, "sheet_id": new_sheet_id})
+                                st.success(f"Unidade '{new_unit_name}' provisionada com sucesso!")
                                 st.rerun()
-                        else:
-                            if st.button("Reativar", key=f"unarchive_emp_{row['id']}", type="primary", use_container_width=True):
-                                employee_manager.unarchive_employee(row['id'])
-                                st.rerun()
-
-    with tab_matriz:
-        st.header("Matriz de Treinamento por Função")
+                            except Exception as e:
+                                st.error(f"Ocorreu um erro: {e}")
         
-        with st.expander("🤖 Importar Matriz com IA (via PDF)"):
-            uploaded_file = st.file_uploader("Selecione um PDF com a matriz", type="pdf", key="matrix_uploader")
-            if uploaded_file and st.button("Analisar Matriz com IA"):
-                with st.spinner("Analisando..."):
-                    data, msg = matrix_manager_unidade.analyze_matrix_pdf(uploaded_file)
-                if data:
-                    st.success(msg)
-                    st.session_state.extracted_matrix_data = data
-                else:
-                    st.error(msg)
+        st.divider()
+        st.subheader("Gerenciar Usuários do Sistema")
 
-        if 'extracted_matrix_data' in st.session_state:
-            st.info("Revise os dados extraídos e salve se estiverem corretos.")
-            st.json(st.session_state.extracted_matrix_data)
-            if st.button("Confirmar e Salvar Matriz", type="primary"):
-                with st.spinner("Salvando..."):
-                    funcs, maps = matrix_manager_unidade.save_extracted_matrix(st.session_state.extracted_matrix_data)
-                st.success(f"Matriz salva! {funcs} novas funções e {maps} mapeamentos adicionados.")
-                del st.session_state.extracted_matrix_data
-                st.rerun()
+        if st.button("➕ Adicionar Novo Usuário"):
+            user_dialog()
 
-        st.subheader("Gerenciamento Manual")
-        col1, col2 = st.columns(2)
-        with col1:
-            with st.form("form_add_function"):
-                st.markdown("#### Adicionar Função")
-                func_name = st.text_input("Nome da Nova Função")
-                if st.form_submit_button("Adicionar"):
-                    if func_name:
-                        _, msg = matrix_manager_unidade.add_function(func_name, "")
-                        st.success(msg)
-                        st.rerun()
-        with col2:
-            with st.form("form_map_training"):
-                st.markdown("#### Mapear Treinamento para Função")
-                if not matrix_manager_unidade.functions_df.empty:
-                    func_id = st.selectbox("Selecione a Função", options=matrix_manager_unidade.functions_df['id'], format_func=lambda id: matrix_manager_unidade.functions_df[matrix_manager_unidade.functions_df['id'] == id]['nome_funcao'].iloc[0])
-                    norm = st.selectbox("Selecione o Treinamento", options=sorted(list(employee_manager.nr_config.keys())))
-                    if st.form_submit_button("Mapear"):
-                        _, msg = matrix_manager_unidade.add_training_to_function(func_id, norm)
-                        st.success(msg)
-                        st.rerun()
-                else:
-                    st.warning("Cadastre uma função primeiro.")
-
-        st.subheader("Visão Consolidada da Matriz")
-        functions_df = matrix_manager_unidade.functions_df
-        matrix_df = matrix_manager_unidade.matrix_df
-        if not functions_df.empty:
-            if not matrix_df.empty:
-                mappings = matrix_df.groupby('id_funcao')['norma_obrigatoria'].apply(list).reset_index()
-                consolidated = pd.merge(functions_df, mappings, left_on='id', right_on='id_funcao', how='left')
-            else:
-                consolidated = functions_df.copy()
-                consolidated['norma_obrigatoria'] = [[] for _ in range(len(consolidated))]
+        all_users_df = pd.DataFrame(matrix_manager_global.get_all_users())
+        if not all_users_df.empty:
+            display_columns = ['email', 'nome', 'role', 'unidade_associada']
+            columns_to_show = [col for col in display_columns if col in all_users_df.columns]
             
-            consolidated['norma_obrigatoria'] = consolidated['norma_obrigatoria'].apply(lambda x: sorted(x) if isinstance(x, list) and x else ["Nenhum treinamento mapeado"])
-            display_dict = pd.Series(consolidated.norma_obrigatoria.values, index=consolidated.nome_funcao).to_dict()
-            st.json(display_dict)
+            st.data_editor(
+                all_users_df[columns_to_show],
+                key="user_editor",
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True
+            )
         else:
-            st.info("Nenhuma função cadastrada para exibir a matriz.")
-
-    with tab_recomendacoes:
-        st.header("🤖 Assistente de Matriz com IA")
-        if not matrix_manager_unidade.functions_df.empty:
-            func_id_rec = st.selectbox("Selecione a Função para obter recomendações", options=matrix_manager_unidade.functions_df['id'], format_func=lambda id: matrix_manager_unidade.functions_df[matrix_manager_unidade.functions_df['id'] == id]['nome_funcao'].iloc[0])
-            if st.button("Gerar Recomendações da IA"):
-                func_name_rec = matrix_manager_unidade.functions_df[matrix_manager_unidade.functions_df['id'] == func_id_rec]['nome_funcao'].iloc[0]
-                with st.spinner("IA pensando..."):
-                    recs, msg = matrix_manager_unidade.get_training_recommendations_for_function(func_name_rec, nr_analyzer)
-                if recs is not None:
-                    st.session_state.recommendations = recs
-                    st.session_state.selected_function_for_rec = func_id_rec
-                else:
-                    st.error(msg)
-        else:
-            st.warning("Cadastre uma função na aba anterior primeiro.")
-
-        if 'recommendations' in st.session_state:
-            st.subheader("Recomendações Geradas")
-            recs = st.session_state.recommendations
-            if not recs:
-                st.success("A IA não identificou treinamentos obrigatórios para esta função.")
-            else:
-                rec_df = pd.DataFrame(recs)
-                rec_df['aceitar'] = True
-                edited_df = st.data_editor(rec_df, column_config={"aceitar": st.column_config.CheckboxColumn("Aceitar?")})
-                if st.button("Salvar Mapeamentos Selecionados"):
-                    norms_to_add = edited_df[edited_df['aceitar']]['treinamento_recomendado'].tolist()
-                    if norms_to_add:
-                        func_id_to_save = st.session_state.selected_function_for_rec
-                        with st.spinner("Salvando..."):
-                            success, msg = matrix_manager_unidade.update_function_mappings(func_id_to_save, norms_to_add)
-                        if success:
-                            st.success(msg)
-                            del st.session_state.recommendations
-                            del st.session_state.selected_function_for_rec
-                            st.rerun()
-                        else:
-                            st.error(msg)
+            st.info("Nenhum usuário cadastrado.")

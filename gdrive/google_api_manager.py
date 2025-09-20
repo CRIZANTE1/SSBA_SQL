@@ -51,29 +51,38 @@ class GoogleApiManager:
 
     # --- Métodos do Google Drive ---
 
-    def upload_file(self, folder_id: str, arquivo, novo_nome: str = None):
-        """Faz upload de um arquivo para uma pasta específica no Google Drive."""
+    """    def upload_file_from_bytes(self, folder_id: str, file_bytes: bytes, filename: str, mimetype: str):
+        """
+        Faz upload de um arquivo para o Google Drive a partir de bytes em memória.
+
+        Args:
+            folder_id (str): ID da pasta de destino no Google Drive.
+            file_bytes (bytes): O conteúdo do arquivo em bytes.
+            filename (str): O nome do arquivo a ser salvo.
+            mimetype (str): O tipo MIME do arquivo (ex: 'image/png', 'application/pdf').
+
+        Returns:
+            str: O link de visualização (webViewLink) do arquivo ou None em caso de erro.
+        """
         if not folder_id:
             st.error("Erro de programação: ID da pasta não foi fornecido para o upload.")
             return None
-        
-        temp_file_path = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(arquivo.name)[1]) as temp_file:
-                temp_file.write(arquivo.getvalue())
-                temp_file_path = temp_file.name
 
-            file_metadata = {
-                'name': novo_nome if novo_nome else arquivo.name,
-                'parents': [folder_id]
-            }
-            media = MediaFileUpload(temp_file_path, mimetype=arquivo.type, resumable=True)
-            
-            file = self.drive_service.files().create(
-                body=file_metadata, media_body=media, fields='id,webViewLink'
-            ).execute()
-            
-            return file.get('webViewLink')
+        try:
+            with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+                temp_file.write(file_bytes)
+                temp_file.flush()  # Garante que todos os bytes sejam escritos
+
+                file_metadata = {'name': filename, 'parents': [folder_id]}
+                media = MediaFileUpload(temp_file.name, mimetype=mimetype, resumable=True)
+                
+                file = self.drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id,webViewLink'
+                ).execute()
+                
+                return file.get('webViewLink')
 
         except Exception as e:
             if "HttpError 404" in str(e):
@@ -81,9 +90,17 @@ class GoogleApiManager:
             else:
                 st.error(f"Erro ao fazer upload do arquivo: {str(e)}")
             return None
-        finally:
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+
+    def upload_file(self, folder_id: str, arquivo, novo_nome: str = None):
+        """Faz upload de um arquivo (UploadedFile do Streamlit) para uma pasta específica no Google Drive."""
+        if not arquivo:
+            return None
+            
+        file_bytes = arquivo.getvalue()
+        filename = novo_nome if novo_nome else arquivo.name
+        mimetype = arquivo.type
+        
+        return self.upload_file_from_bytes(folder_id, file_bytes, filename, mimetype)""
 
     def create_folder(self, name: str, parent_folder_id: str = None):
         """Cria uma nova pasta no Google Drive e retorna seu ID."""

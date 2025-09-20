@@ -1,92 +1,40 @@
-# sheets_config.yaml
-# Template para a criação de novas planilhas de unidade.
-
-empresas:
+incidentes:
   - id
+  - numero_alerta
+  - evento_resumo
+  - data_evento
+  - o_que_aconteceu
+  - por_que_aconteceu
+  - foto_url
+  - anexos_url
+
+acoes_bloqueio:
+  - id
+  - id_incidente
+  - descricao_acao
+
+plano_de_acao_abrangencia:
+  - id
+  - id_acao_bloqueio
+  - unidade_operacional
+  - responsavel_email
+  - prazo_inicial
+  - status
+
+# Manter as abas de usuários e auditoria na planilha matriz pode ser útil
+usuarios:
+  - email
   - nome
-  - cnpj
-  - status
+  - role
+  - unidade_associada
 
-funcionarios:
-  - id
-  - nome
-  - empresa_id
-  - cargo
-  - data_admissao
-  - status
+auditoria:
+  - timestamp
+  - user_email
+  - action
+  - details
 
-asos:
-  - id
-  - funcionario_id
-  - data_aso
-  - vencimento
-  - arquivo_id
-  - riscos
-  - cargo
-  - tipo_aso
-
-treinamentos:
-  - id
-  - funcionario_id
-  - data
-  - vencimento
-  - norma
-  - modulo
-  - status
-  - anexo
-  - tipo_treinamento
-  - carga_horaria
-
-documentos_empresa:
-  - id
-  - empresa_id
-  - tipo_documento
-  - data_emissao
-  - vencimento
-  - arquivo_id
-
-fichas_epi:
-  - id
-  - funcionario_id
-  - item_id
-  - descricao_epi
-  - ca_epi
-  - data_entrega
-  - arquivo_id
-
-plano_acao:
-  - id
-  - audit_run_id
-  - id_empresa
-  - id_documento_original
-  - item_nao_conforme
-  - referencia_normativa
-  - plano_de_acao
-  - responsavel
-  - prazo
-  - status
-  - data_criacao
-  - data_conclusao
-
-auditorias:
-  - id
-  - id_auditoria
-  - data_auditoria
-  - id_empresa
-  - id_documento_original
-  - id_funcionario
-  - tipo_documento
-  - norma_auditada
-  - item_de_verificacao
-  - Status
-  - observacao
-
-funcoes:
-  - id
-  - nome_funcao
-  - descricao
-
-matriz_treinamentos:
-  - id
-  - id_funcao
-  - norma_obrigatoria
+unidades:
+  - nome_unidade
+  - spreadsheet_id
+  - folder_id

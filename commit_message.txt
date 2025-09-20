@@ -1,0 +1,9 @@
+feat: Refatora a aplicação para Sistema de Abrangência de Incidentes
+
+Refatora completamente a aplicação de um sistema de gestão de documentos de SST para um novo Sistema de Abrangência de Incidentes e Planos de Ação.
+
+- Implementa um novo fluxo de cadastro de incidentes para um Admin Global, utilizando IA (Gemini) para analisar documentos e gerar recomendações específicas.
+- Cria um novo dashboard para que os usuários da unidade visualizem os incidentes globais e avaliem a abrangência local.
+- Adiciona uma nova página de plano de ação para que as unidades acompanhem a implementação das ações de bloqueio.
+- Remove arquivos, dependências e códigos obsoletos do sistema antigo.
+- Refatora o notificador de e-mail para relatar itens de ação atrasados.
