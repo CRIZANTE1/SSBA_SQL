@@ -12,8 +12,9 @@ from AI.api_Operation import PDFQA
 
 def analyze_incident_document(attachment_file, photo_file, alert_number):
     """
-    Orquestra a análise do documento de incidente com IA, faz o upload dos arquivos
-    e armazena os resultados no session_state para confirmação do usuário.
+    Orquestra a análise com IA e faz o upload dos arquivos para as pastas corretas:
+    - Foto vai para a pasta de imagens públicas.
+    - Anexo vai para a pasta de documentos restritos.
     """
     st.session_state.processing = True
     st.session_state.error = None
@@ -21,16 +22,15 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
 
     try:
         with st.spinner("Analisando documento com IA e fazendo upload dos arquivos..."):
-            # 1. Análise com IA
+            # 1. Análise com IA (permanece igual)
             api_op = PDFQA()
-            prompt = prompt = """
+            prompt = """
             Você é um especialista em análise de incidentes de segurança. Extraia as seguintes informações do documento e retorne um JSON.
             - evento_resumo: Um título curto e informativo para o evento (ex: "Princípio de incêndio no laboratório").
             - data_evento: A data de emissão do alerta, no formato YYYY-MM-DD.
             - o_que_aconteceu: O parágrafo completo da seção "O que aconteceu?".
             - por_que_aconteceu: O parágrafo completo da seção "Por que aconteceu?".
             - recomendacoes: Uma lista de strings, onde cada string é um item da seção "O que fazer para evitar?".
-            
             Responda APENAS com o bloco de código JSON.
             """
             analysis_result, _ = api_op.answer_question(
@@ -41,20 +41,30 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
                 raise ValueError("A análise da IA falhou ou não retornou o formato JSON esperado com recomendações.")
 
-            # 2. Upload dos arquivos para a pasta central
-            from gdrive.config import CENTRAL_ALERTS_FOLDER_ID
+            # 2. <<< MUDANÇA IMPORTANTE: Upload para pastas separadas >>>
+            from gdrive.config import PUBLIC_IMAGES_FOLDER_ID, RESTRICTED_ATTACHMENTS_FOLDER_ID
             api_manager = GoogleApiManager()
 
-            # Sanitiza o número do alerta para usar como nome de arquivo
             safe_alert_number = "".join(c for c in alert_number if c.isalnum() or c in ('-','_')).rstrip()
 
-            photo_url = api_manager.upload_file(CENTRAL_ALERTS_FOLDER_ID, photo_file, f"foto_{safe_alert_number}.jpg")
-            anexos_url = api_manager.upload_file(CENTRAL_ALERTS_FOLDER_ID, attachment_file, f"anexo_{safe_alert_number}.pdf")
+            # Upload da foto para a pasta PÚBLICA
+            photo_url = api_manager.upload_file(
+                PUBLIC_IMAGES_FOLDER_ID, 
+                photo_file, 
+                f"foto_{safe_alert_number}.jpg"
+            )
+            
+            # Upload do anexo para a pasta RESTRITA
+            anexos_url = api_manager.upload_file(
+                RESTRICTED_ATTACHMENTS_FOLDER_ID, 
+                attachment_file, 
+                f"anexo_{safe_alert_number}_{attachment_file.name}"
+            )
 
             if not photo_url or not anexos_url:
                 raise ConnectionError("Falha no upload de um ou mais arquivos para o Google Drive.")
 
-            # 3. Armazena tudo no estado da sessão
+            # 3. Armazena tudo no estado da sessão (permanece igual)
             st.session_state.incident_data_for_confirmation = {
                 **analysis_result,
                 "numero_alerta": alert_number,
@@ -70,7 +80,7 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
         log_action("AI_ANALYSIS_FAILURE", {"alert_number": alert_number, "error": str(e)})
     finally:
         st.session_state.processing = False
-
+        
 # --- COMPONENTES DA UI ---
 
 def display_incident_registration_tab():
