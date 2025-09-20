@@ -1,201 +1,170 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import date
-
 from auth.auth_utils import check_permission
-from operations.incident_manager import IncidentManager
-from gdrive.matrix_manager import MatrixManager as GlobalMatrixManager
+from operations.incident_manager import get_incident_manager, IncidentManager
+from operations.audit_logger import log_action
 
-def truncate_text(text, max_length=100):
-    """Trunca o texto para um comprimento máximo e adiciona '...' se for maior."""
+def truncate_text(text, max_length=120):
+    """Trunca o texto para um comprimento máximo e adiciona '...' se necessário."""
     if not isinstance(text, str) or len(text) <= max_length:
         return text
+    # Tenta cortar na última palavra para não quebrar no meio de uma
     return text[:max_length].rsplit(' ', 1)[0] + "..."
 
 def display_incident_list(incident_manager: IncidentManager):
     """
-    Exibe a lista de todos os incidentes em formato de cards numa grade de 3 colunas.
+    Exibe a lista de todos os incidentes em formato de cards.
     """
     st.subheader("Alertas de Incidentes Globais para Abrangência")
-    incidents = incident_manager.get_all_incidents()
+    incidents_df = incident_manager.get_all_incidents()
 
-    if incidents.empty:
+    if incidents_df.empty:
         st.info("Nenhum alerta de incidente cadastrado no sistema.")
         return
 
-    # Ordena do mais recente para o mais antigo
-    incidents['data_evento'] = pd.to_datetime(incidents['data_evento'])
-    sorted_incidents = incidents.sort_values(by="data_evento", ascending=False)
+    # Garante que a coluna de data esteja no formato correto e ordena
+    try:
+        incidents_df['data_evento_dt'] = pd.to_datetime(incidents_df['data_evento'], dayfirst=True)
+        sorted_incidents = incidents_df.sort_values(by="data_evento_dt", ascending=False)
+    except Exception:
+        st.warning("Não foi possível ordenar os incidentes por data devido a formatos inconsistentes.")
+        sorted_incidents = incidents_df
 
     cols = st.columns(3)
-    for index, incident in sorted_incidents.iterrows():
-        col = cols[index % 3]
+    for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
+        col = cols[i % 3]
         with col:
             with st.container(border=True):
+                # Imagem do incidente, se disponível
                 if pd.notna(incident.get('foto_url')):
-                    st.image(incident['foto_url'], use_container_width=True)
+                    st.image(incident['foto_url'], use_container_width=True, caption=f"Alerta: {incident.get('numero_alerta')}")
+                else:
+                    st.subheader(f"Alerta: {incident.get('numero_alerta')}")
                 
-                st.subheader(incident.get('evento_resumo', 'Título não disponível'))
+                st.subheader(incident.get('evento_resumo', 'Título Indisponível'))
                 
-                # Descrição curta
-                descricao_curta = truncate_text(incident.get('o_que_aconteceu', ''), max_length=120)
+                # Descrição curta com link para mais detalhes
+                descricao_curta = truncate_text(incident.get('o_que_aconteceu', ''))
                 st.write(descricao_curta)
 
-                # Expansor com mais detalhes
-                with st.expander("➕ Saiba Mais"):
+                # Expansor com todos os detalhes
+                with st.expander("➕ Ver Detalhes"):
                     st.markdown("##### O que aconteceu?")
                     st.write(incident.get('o_que_aconteceu', 'Não informado.'))
-
                     st.markdown("##### Por que aconteceu?")
                     st.write(incident.get('por_que_aconteceu', 'Não informado.'))
+                    data_evento_str = incident['data_evento_dt'].strftime('%d/%m/%Y') if 'data_evento_dt' in incident else incident.get('data_evento', 'N/A')
+                    st.markdown(f"**Data do Evento:** {data_evento_str}")
 
-                    st.markdown("##### Informações Gerais")
-                    st.write(f"**Nº Alerta:** {incident.get('numero_alerta', 'N/A')}")
-                    st.write(f"**Data do Evento:** {incident['data_evento'].strftime('%d/%m/%Y')}")
-
-                st.markdown("---")
+                st.divider()
                 
-                # Botão para iniciar o fluxo principal
-                if st.button("Analisar e Iniciar Abrangência", key=f"analisar_{incident['id']}", type="primary"):
+                # Botão para iniciar o fluxo de análise
+                if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
                     st.session_state.selected_incident_id = incident['id']
                     st.rerun()
 
-def display_incident_detail(incident_id: str, global_incident_manager: IncidentManager, unit_incident_manager: IncidentManager):
+def display_incident_detail(incident_id: str, incident_manager: IncidentManager):
     """
-    Exibe os detalhes de um único incidente e o fluxo de abrangência.
+    Exibe os detalhes de um incidente selecionado e o formulário para o plano de ação de abrangência.
     """
-    incident = global_incident_manager.get_incident_by_id(incident_id)
+    incident = incident_manager.get_incident_by_id(incident_id)
 
     if incident is None:
         st.error("Incidente não encontrado. Retornando à lista.")
-        del st.session_state.selected_incident_id
+        if 'selected_incident_id' in st.session_state:
+            del st.session_state.selected_incident_id
         st.rerun()
 
-    # Botão para voltar
+    # --- Cabeçalho e Detalhes do Incidente ---
     if st.button("← Voltar para a lista de alertas"):
         del st.session_state.selected_incident_id
-        # Limpa o estado do fluxo de abrangência ao voltar
-        if 'start_abrangencia' in st.session_state:
-            del st.session_state.start_abrangencia
         st.rerun()
 
-    st.header(incident.get('evento_resumo'))
-    st.caption(f"Nº Alerta: {incident.get('numero_alerta', 'N/A')} | Data: {pd.to_datetime(incident.get('data_evento')).strftime('%d/%m/%Y')}")
+    st.title(incident.get('evento_resumo'))
+    data_evento_str = pd.to_datetime(incident.get('data_evento'), dayfirst=True).strftime('%d/%m/%Y')
+    st.caption(f"Nº Alerta: {incident.get('numero_alerta', 'N/A')} | Data do Evento: {data_evento_str}")
     st.divider()
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([2, 1])
     with col1:
-        st.subheader("O que aconteceu?")
-        st.markdown(incident.get('o_que_aconteceu'))
-        st.subheader("Por que aconteceu?")
-        st.markdown(incident.get('por_que_aconteceu'))
+        st.subheader("Descrição do Evento")
+        st.markdown(f"**O que aconteceu?**\n\n{incident.get('o_que_aconteceu')}")
+        st.markdown(f"**Por que aconteceu?**\n\n{incident.get('por_que_aconteceu')}")
     with col2:
         if pd.notna(incident.get('foto_url')):
             st.image(incident.get('foto_url'), caption="Foto do incidente")
-        st.link_button("Acessar Documento de Análise Completo", url=incident.get('anexos_url', ''))
+        if pd.notna(incident.get('anexos_url')):
+            st.link_button("Acessar Documento de Análise", url=incident.get('anexos_url'), use_container_width=True)
 
     st.divider()
 
-    # --- FLUXO DE ABRANGÊNCIA ---
-    st.header("Fluxo de Abrangência")
+    # --- Formulário de Abrangência ---
+    st.header("Análise e Plano de Ação de Abrangência")
+    blocking_actions = incident_manager.get_blocking_actions_by_incident(incident_id)
 
-    if 'start_abrangencia' not in st.session_state:
-        st.session_state.start_abrangencia = False
+    if blocking_actions.empty:
+        st.success("Não há ações de bloqueio cadastradas para este incidente.")
+        return
 
-    if not st.session_state.start_abrangencia:
-        if st.button("Iniciar Abrangência", type="primary"):
-            st.session_state.start_abrangencia = True
-            st.rerun()
-    
-    if st.session_state.start_abrangencia:
-        blocking_actions = global_incident_manager.get_blocking_actions_by_incident(incident_id)
+    st.info(f"Avalie cada Ação de Bloqueio abaixo e marque aquelas que são aplicáveis para a sua unidade: **{st.session_state.unit_name}**.")
 
-        if blocking_actions.empty:
-            st.success("Não há ações de bloqueio cadastradas para este incidente.")
-            return
+    with st.form("abrangencia_form"):
+        pertinent_actions = {}
+        for _, action in blocking_actions.iterrows():
+            action_id = action['id']
+            description = action['descricao_acao']
+            is_pertinent = st.toggle(f"**Ação:** {description}", key=f"toggle_{action_id}")
+            if is_pertinent:
+                pertinent_actions[action_id] = description
+        
+        st.divider()
+        st.markdown("**Preencha os detalhes para as ações marcadas como aplicáveis:**")
 
-        st.info("Avalie cada Ação de Bloqueio abaixo e marque aquelas que são pertinentes para a sua unidade.")
+        responsavel_email = st.text_input("E-mail do Responsável", value=get_user_email())
+        prazo_inicial = st.date_input("Prazo para Implementação", min_value=date.today())
 
-        with st.form("abrangencia_form"):
-            pertinent_actions = {}
-            for _, action in blocking_actions.iterrows():
-                action_id = action['id']
-                description = action['descricao_acao']
-                is_pertinent = st.toggle(f"**Ação:** {description}", key=f"toggle_{action_id}")
-                if is_pertinent:
-                    pertinent_actions[action_id] = description
-            
-            st.divider()
-            st.markdown("**Preencha os detalhes para as ações marcadas como pertinentes:**")
+        submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
-            responsavel_email = st.text_input("E-mail do Responsável na Unidade", value=st.session_state.get('user_email', ''))
-            prazo_inicial = st.date_input("Prazo para Implementação")
-
-            submitted = st.form_submit_button("Registrar Plano de Ação de Abrangência")
-
-            if submitted:
-                if not pertinent_actions:
-                    st.warning("Nenhuma ação foi marcada como pertinente. Nada foi salvo.")
-                elif not responsavel_email or not prazo_inicial:
-                    st.error("O e-mail do responsável e o prazo são obrigatórios.")
+        if submitted:
+            if not pertinent_actions:
+                st.warning("Nenhuma ação foi marcada como aplicável. Nada foi salvo.")
+            elif not responsavel_email or not prazo_inicial:
+                st.error("O e-mail do responsável e o prazo são obrigatórios.")
+            else:
+                saved_count = 0
+                error_count = 0
+                with st.spinner("Salvando plano de ação..."):
+                    for action_id, desc in pertinent_actions.items():
+                        new_id = incident_manager.add_abrangencia_action(
+                            id_acao_bloqueio=action_id,
+                            unidade_operacional=st.session_state.unit_name,
+                            responsavel_email=responsavel_email,
+                            prazo_inicial=prazo_inicial,
+                            status="Pendente"
+                        )
+                        if new_id:
+                            saved_count += 1
+                            log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "action_desc": desc})
+                        else:
+                            error_count += 1
+                
+                if error_count == 0:
+                    st.success(f"{saved_count} ação(ões) de abrangência foram salvas com sucesso no plano de ação!")
+                    del st.session_state.selected_incident_id # Retorna à lista principal
+                    st.rerun()
                 else:
-                    saved_count = 0
-                    with st.spinner("Salvando plano de ação na planilha da sua unidade..."):
-                        for action_id, desc in pertinent_actions.items():
-                            new_id = unit_incident_manager.add_abrangencia_action(
-                                id_acao_bloqueio=action_id,
-                                unidade_operacional=st.session_state.get('unit_name', 'N/A'),
-                                responsavel_email=responsavel_email,
-                                prazo_inicial=prazo_inicial,
-                                status="Pendente"
-                            )
-                            if new_id:
-                                saved_count += 1
-                    
-                    if saved_count == len(pertinent_actions):
-                        st.success(f"{saved_count} ação(ões) de abrangência foram salvas com sucesso no plano de ação da sua unidade!")
-                        # Limpa o estado para finalizar o fluxo
-                        del st.session_state.start_abrangencia
-                        del st.session_state.selected_incident_id
-                    else:
-                        st.error("Ocorreu um erro ao salvar algumas ou todas as ações. Verifique a planilha.")
+                    st.error(f"Ocorreu um erro. {saved_count} ações salvas, {error_count} falharam.")
 
 # --- PONTO DE ENTRADA DA PÁGINA ---
 def show_dashboard_page():
-    # Verifica se o usuário tem permissão para ver a página
-    if not check_permission(level='viewer'):
-        st.stop()
+    check_permission(level='viewer')
 
-    # Verifica se os managers da unidade foram inicializados (garante que o login foi feito)
-    if not st.session_state.get('managers_initialized'):
-        st.warning("Selecione uma unidade operacional para visualizar o dashboard.")
-        st.stop()
-    
-    # --- LÓGICA DE NAVEGAÇÃO (DETALHE vs. LISTA) ---
-    # Se um incidente foi selecionado para análise, mostra a tela de detalhes
+    incident_manager = get_incident_manager()
+
+    # Lógica de navegação: mostra a lista de incidentes ou os detalhes de um específico.
     if 'selected_incident_id' in st.session_state:
-        # Inicialização dos managers movida para dentro do if para garantir que só rodem quando necessário
-        try:
-            global_matrix_manager = GlobalMatrixManager()
-            matrix_spreadsheet_id = global_matrix_manager.spreadsheet.id
-            global_incident_manager = IncidentManager(matrix_spreadsheet_id)
-
-            unit_spreadsheet_id = st.session_state.get('spreadsheet_id')
-            unit_incident_manager = IncidentManager(unit_spreadsheet_id)
-        except Exception as e:
-            st.error(f"Erro ao inicializar os gerenciadores de dados: {e}")
-            st.stop()
-        
-        display_incident_detail(st.session_state.selected_incident_id, global_incident_manager, unit_incident_manager)
-    # Senão, mostra a lista de cards de incidentes
+        display_incident_detail(st.session_state.selected_incident_id, incident_manager)
     else:
-        try:
-            global_matrix_manager = GlobalMatrixManager()
-            matrix_spreadsheet_id = global_matrix_manager.spreadsheet.id
-            global_incident_manager = IncidentManager(matrix_spreadsheet_id)
-        except Exception as e:
-            st.error(f"Erro ao inicializar o gerenciador de incidentes globais: {e}")
-            st.stop()
-
-        display_incident_list(global_incident_manager)
+        st.title("Dashboard de Incidentes")
+        display_incident_list(incident_manager)
