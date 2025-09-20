@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import logging
@@ -27,7 +26,6 @@ class SheetOperations:
         logger.info("Inicializando a conexão com o Google Sheets...")
         if not SPREADSHEET_ID:
             st.error("ID da Planilha Principal não configurado. Verifique seu arquivo secrets.toml.")
-            logger.critical("SPREADSHEET_ID não encontrado. A aplicação não pode funcionar.")
             self.spreadsheet = None
             self._initialized = True
             return
@@ -37,11 +35,8 @@ class SheetOperations:
             self.spreadsheet = api_manager.open_spreadsheet(SPREADSHEET_ID)
             if self.spreadsheet:
                 logger.info(f"Conectado com sucesso à planilha: '{self.spreadsheet.title}'")
-            else:
-                logger.error(f"Falha ao abrir a planilha com ID: ...{SPREADSHEET_ID[-6:]}")
         except Exception as e:
             st.error(f"Erro inesperado durante a inicialização da conexão com a planilha: {e}")
-            logger.critical(f"Exceção não tratada na inicialização de SheetOperations: {e}", exc_info=True)
             self.spreadsheet = None
 
         self._initialized = True
@@ -62,10 +57,8 @@ class SheetOperations:
     @st.cache_data(ttl=60)
     def carregar_dados_aba(_self, aba_name: str) -> list | None:
         worksheet = _self._get_worksheet(aba_name)
-        if not worksheet:
-            return None
+        if not worksheet: return None
         try:
-            logger.info(f"CACHE MISS: Lendo dados da API para a aba '{aba_name}'...")
             return worksheet.get_all_values()
         except Exception as e:
             logger.error(f"Erro ao ler dados da aba '{aba_name}': {e}", exc_info=True)
@@ -84,8 +77,7 @@ class SheetOperations:
             existing_ids = worksheet.col_values(1)[1:]
             while True:
                 new_id = random.randint(10000, 99999)
-                if str(new_id) not in existing_ids:
-                    break
+                if str(new_id) not in existing_ids: break
             full_row_to_add = [new_id] + new_data
             worksheet.append_row(full_row_to_add, value_input_option='USER_ENTERED')
             st.cache_data.clear()
@@ -133,4 +125,34 @@ class SheetOperations:
             return True
         except Exception as e:
             logger.error(f"Erro ao atualizar linha na aba '{aba_name}': {e}", exc_info=True)
+            return False
+
+    # --- MÉTODOS RESTAURADOS ---
+    def adc_linha_simples(self, aba_name: str, new_data_row: list) -> bool:
+        """
+        Adiciona uma única linha de dados a uma aba, sem gerar ou manipular IDs.
+        Ideal para abas como 'usuarios'.
+        """
+        worksheet = self._get_worksheet(aba_name)
+        if not worksheet: return False
+        try:
+            worksheet.append_row(new_data_row, value_input_option='USER_ENTERED')
+            st.cache_data.clear()
+            logger.info(f"Linha adicionada com sucesso na aba '{aba_name}'.")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao adicionar linha na aba '{aba_name}': {e}", exc_info=True)
+            return False
+
+    def excluir_linha_por_indice(self, aba_name: str, row_index: int) -> bool:
+        """Exclui uma linha de uma aba pelo seu número de índice."""
+        worksheet = self._get_worksheet(aba_name)
+        if not worksheet: return False
+        try:
+            worksheet.delete_rows(row_index)
+            st.cache_data.clear()
+            logger.info(f"Linha {row_index} da aba '{aba_name}' excluída com sucesso.")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao excluir linha {row_index} da aba '{aba_name}': {e}", exc_info=True)
             return False
