@@ -9,46 +9,63 @@ def truncate_text(text, max_length=120):
     """Trunca o texto para um comprimento máximo e adiciona '...' se necessário."""
     if not isinstance(text, str) or len(text) <= max_length:
         return text
-    # Tenta cortar na última palavra para não quebrar no meio de uma
     return text[:max_length].rsplit(' ', 1)[0] + "..."
 
 def display_incident_list(incident_manager: IncidentManager):
     """
-    Exibe a lista de todos os incidentes em formato de cards.
+    Exibe a lista de incidentes que AINDA NÃO foram abrangidos pela unidade do usuário.
     """
-    st.subheader("Alertas de Incidentes Globais para Abrangência")
-    incidents_df = incident_manager.get_all_incidents()
+    st.subheader("Alertas de Incidentes Pendentes de Abrangência")
+    
+    all_incidents_df = incident_manager.get_all_incidents()
+    user_unit = st.session_state.get('unit_name', 'Global')
 
-    if incidents_df.empty:
+    if all_incidents_df.empty:
         st.info("Nenhum alerta de incidente cadastrado no sistema.")
+        return
+
+    # <<< MUDANÇA IMPORTANTE: Lógica para filtrar alertas já abrangidos >>>
+    # Se o usuário for global (admin), ele vê todos os alertas.
+    if user_unit == 'Global':
+        incidents_to_show_df = all_incidents_df
+        st.info("Visão de Administrador: mostrando todos os alertas globais.")
+    else:
+        # Pega os IDs dos incidentes que a unidade do usuário já abrangiu.
+        covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
+        
+        if not covered_incident_ids:
+            # Se a unidade ainda não abrangiu nenhum, mostra todos.
+            incidents_to_show_df = all_incidents_df
+        else:
+            # Filtra o DataFrame para excluir os incidentes cujos IDs estão na lista de abrangidos.
+            incidents_to_show_df = all_incidents_df[~all_incidents_df['id'].isin(covered_incident_ids)]
+
+    if incidents_to_show_df.empty:
+        st.success(f"🎉 Todos os alertas de incidentes já foram analisados pela unidade **{user_unit}**.")
         return
 
     # Garante que a coluna de data esteja no formato correto e ordena
     try:
-        incidents_df['data_evento_dt'] = pd.to_datetime(incidents_df['data_evento'], dayfirst=True)
-        sorted_incidents = incidents_df.sort_values(by="data_evento_dt", ascending=False)
+        incidents_to_show_df['data_evento_dt'] = pd.to_datetime(incidents_to_show_df['data_evento'], dayfirst=True)
+        sorted_incidents = incidents_to_show_df.sort_values(by="data_evento_dt", ascending=False)
     except Exception:
-        st.warning("Não foi possível ordenar os incidentes por data devido a formatos inconsistentes.")
-        sorted_incidents = incidents_df
+        sorted_incidents = incidents_to_show_df
+
+    st.write(f"Exibindo **{len(sorted_incidents)}** alerta(s) pendente(s) para a unidade **{user_unit}**.")
 
     cols = st.columns(3)
     for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
         col = cols[i % 3]
         with col:
             with st.container(border=True):
-                # Imagem do incidente, se disponível
                 if pd.notna(incident.get('foto_url')):
                     st.image(incident['foto_url'], use_container_width=True, caption=f"Alerta: {incident.get('numero_alerta')}")
                 else:
                     st.subheader(f"Alerta: {incident.get('numero_alerta')}")
                 
                 st.subheader(incident.get('evento_resumo', 'Título Indisponível'))
-                
-                # Descrição curta com link para mais detalhes
-                descricao_curta = truncate_text(incident.get('o_que_aconteceu', ''))
-                st.write(descricao_curta)
+                st.write(truncate_text(incident.get('o_que_aconteceu', '')))
 
-                # Expansor com todos os detalhes
                 with st.expander("➕ Ver Detalhes"):
                     st.markdown("##### O que aconteceu?")
                     st.write(incident.get('o_que_aconteceu', 'Não informado.'))
@@ -59,7 +76,6 @@ def display_incident_list(incident_manager: IncidentManager):
 
                 st.divider()
                 
-                # Botão para iniciar o fluxo de análise
                 if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
                     st.session_state.selected_incident_id = incident['id']
                     st.rerun()
@@ -67,6 +83,7 @@ def display_incident_list(incident_manager: IncidentManager):
 def display_incident_detail(incident_id: str, incident_manager: IncidentManager):
     """
     Exibe os detalhes de um incidente selecionado e o formulário para o plano de ação de abrangência.
+    (Esta função permanece praticamente a mesma)
     """
     incident = incident_manager.get_incident_by_id(incident_id)
 
@@ -76,8 +93,7 @@ def display_incident_detail(incident_id: str, incident_manager: IncidentManager)
             del st.session_state.selected_incident_id
         st.rerun()
 
-    # --- Cabeçalho e Detalhes do Incidente ---
-    if st.button("← Voltar para a lista de alertas"):
+    if st.button("← Voltar para a lista de alertas pendentes"):
         del st.session_state.selected_incident_id
         st.rerun()
 
@@ -99,7 +115,6 @@ def display_incident_detail(incident_id: str, incident_manager: IncidentManager)
 
     st.divider()
 
-    # --- Formulário de Abrangência ---
     st.header("Análise e Plano de Ação de Abrangência")
     blocking_actions = incident_manager.get_blocking_actions_by_incident(incident_id)
 
@@ -121,14 +136,18 @@ def display_incident_detail(incident_id: str, incident_manager: IncidentManager)
         st.divider()
         st.markdown("**Preencha os detalhes para as ações marcadas como aplicáveis:**")
 
-        responsavel_email = st.text_input("E-mail do Responsável", value=get_user_email())
+        responsavel_email = st.text_input("E-mail do Responsável", value=st.session_state.get('user_info', {}).get('email', ''))
         prazo_inicial = st.date_input("Prazo para Implementação", min_value=date.today())
 
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
         if submitted:
+            # <<< MUDANÇA IMPORTANTE: Mesmo que nenhuma ação seja pertinente, registramos a análise. >>>
+            # Se o usuário não marcou nenhuma ação, podemos adicionar um registro especial ou simplesmente considerar a análise concluída.
+            # A abordagem mais simples é: se ele submeteu o formulário (mesmo que vazio), ele analisou.
+            # A lógica de `get_covered_incident_ids_for_unit` já cobre isso: se pelo menos UMA ação for salva, o incidente some da lista.
             if not pertinent_actions:
-                st.warning("Nenhuma ação foi marcada como aplicável. Nada foi salvo.")
+                st.warning("Nenhuma ação foi marcada como aplicável. Para registrar que este alerta foi analisado, ao menos uma ação deve ser selecionada. Se nenhuma for aplicável, contate o administrador.")
             elif not responsavel_email or not prazo_inicial:
                 st.error("O e-mail do responsável e o prazo são obrigatórios.")
             else:
@@ -149,20 +168,18 @@ def display_incident_detail(incident_id: str, incident_manager: IncidentManager)
                         else:
                             error_count += 1
                 
-                if error_count == 0:
-                    st.success(f"{saved_count} ação(ões) de abrangência foram salvas com sucesso no plano de ação!")
-                    del st.session_state.selected_incident_id # Retorna à lista principal
+                if error_count == 0 and saved_count > 0:
+                    st.success(f"{saved_count} ação(ões) de abrangência foram salvas! Este alerta não aparecerá mais na sua lista de pendências.")
+                    del st.session_state.selected_incident_id 
                     st.rerun()
-                else:
-                    st.error(f"Ocorreu um erro. {saved_count} ações salvas, {error_count} falharam.")
+                elif error_count > 0:
+                     st.error(f"Ocorreu um erro. {saved_count} ações salvas, {error_count} falharam.")
 
-# --- PONTO DE ENTRADA DA PÁGINA ---
 def show_dashboard_page():
     check_permission(level='viewer')
 
     incident_manager = get_incident_manager()
 
-    # Lógica de navegação: mostra a lista de incidentes ou os detalhes de um específico.
     if 'selected_incident_id' in st.session_state:
         display_incident_detail(st.session_state.selected_incident_id, incident_manager)
     else:
