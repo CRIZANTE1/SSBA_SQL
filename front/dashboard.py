@@ -7,20 +7,28 @@ from operations.audit_logger import log_action
 
 def convert_drive_url_to_displayable(url: str) -> str | None:
     """
-    Converte uma URL de visualização do Google Drive para um formato
-    que pode ser exibido diretamente por st.image ou tags <img>.
+    Converte uma URL de visualização do Google Drive para um formato de thumbnail
+    que é mais confiável para exibição direta em st.image.
     """
     if not isinstance(url, str) or 'drive.google.com' not in url:
-        return url # Retorna a URL original se não for do Drive ou for inválida
+        return None # Retorna None se a URL for inválida
     
     try:
-        # Extrai o ID do arquivo da URL
-        file_id = url.split('/d/')[1].split('/')[0]
-        return f'https://drive.google.com/uc?export=view&id={file_id}'
-    except IndexError:
-        # Retorna a URL original se o formato for inesperado
-        return url
+        # Extrai o ID do arquivo de diferentes formatos de URL
+        if '/d/' in url:
+            file_id = url.split('/d/')[1].split('/')[0]
+        elif 'id=' in url:
+            file_id = url.split('id=')[1].split('&')[0]
+        else:
+            return None # Formato de URL não reconhecido
 
+        # Retorna a URL no formato de thumbnail
+        return f'https://drive.google.com/thumbnail?id={file_id}'
+    
+    except IndexError:
+        # Se a extração do ID falhar
+        return None
+        
 @st.dialog("Análise de Abrangência do Incidente")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
