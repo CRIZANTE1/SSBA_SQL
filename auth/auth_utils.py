@@ -1,7 +1,7 @@
 import streamlit as st
 from gdrive.matrix_manager import get_matrix_manager
 from operations.audit_logger import log_action
-from gdrive.config import SPREADSHEET_ID, CENTRAL_ALERTS_FOLDER_ID
+from gdrive.config import SPREADSHEET_ID
 
 def is_user_logged_in() -> bool:
     """Verifica se o usuário está logado através do objeto st.user do Streamlit."""
