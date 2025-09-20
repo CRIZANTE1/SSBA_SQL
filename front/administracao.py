@@ -1,3 +1,5 @@
+# front/administracao.py
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -22,7 +24,7 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
 
     try:
         with st.spinner("Analisando documento com IA e fazendo upload dos arquivos..."):
-            # 1. Análise com IA (permanece igual)
+            # 1. Análise com IA
             api_op = PDFQA()
             prompt = """
             Você é um especialista em análise de incidentes de segurança. Extraia as seguintes informações do documento e retorne um JSON.
@@ -41,7 +43,7 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
                 raise ValueError("A análise da IA falhou ou não retornou o formato JSON esperado com recomendações.")
 
-            # 2. <<< MUDANÇA IMPORTANTE: Upload para pastas separadas >>>
+            # 2. Upload para pastas separadas no Google Drive
             from gdrive.config import PUBLIC_IMAGES_FOLDER_ID, RESTRICTED_ATTACHMENTS_FOLDER_ID
             api_manager = GoogleApiManager()
 
@@ -64,7 +66,7 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not photo_url or not anexos_url:
                 raise ConnectionError("Falha no upload de um ou mais arquivos para o Google Drive.")
 
-            # 3. Armazena tudo no estado da sessão (permanece igual)
+            # 3. Armazena tudo no estado da sessão
             st.session_state.incident_data_for_confirmation = {
                 **analysis_result,
                 "numero_alerta": alert_number,
@@ -104,11 +106,10 @@ def display_incident_registration_tab():
             else:
                 analyze_incident_document(attachment_file, photo_file, alert_number)
     
-    # Exibe erros, se houver
     if st.session_state.get('error'):
         st.error(st.session_state.error)
 
-    # Passo 2: Formulário de Confirmação (só aparece após a análise)
+    # Passo 2: Formulário de Confirmação
     if st.session_state.get('analysis_complete'):
         st.divider()
         st.subheader("2. Revise os dados extraídos pela IA e confirme")
@@ -160,15 +161,16 @@ def display_incident_registration_tab():
                             if success_actions:
                                 st.success(f"Alerta '{edited_evento_resumo}' salvo com sucesso!")
                                 log_action("REGISTER_INCIDENT", {"incident_id": new_incident_id, "alert_number": data['numero_alerta']})
-                                # Limpa o estado da sessão para permitir um novo cadastro
                                 for key in ['analysis_complete', 'incident_data_for_confirmation', 'error', 'processing']:
                                     if key in st.session_state:
                                         del st.session_state[key]
                                 st.rerun()
                             else:
                                 st.error("O incidente foi salvo, mas falhou ao salvar as recomendações.")
+                                log_action("REGISTER_INCIDENT_ACTIONS_FAILURE", {"incident_id": new_incident_id})
                         else:
                             st.error("Falha ao salvar o alerta na planilha.")
+                            log_action("REGISTER_INCIDENT_FAILURE", {"alert_number": data['numero_alerta']})
 
 @st.dialog("Gerenciar Usuário")
 def user_dialog(user_data=None):
@@ -178,7 +180,7 @@ def user_dialog(user_data=None):
     st.subheader(title)
 
     matrix_manager = get_matrix_manager()
-    unit_names = ["*"] + matrix_manager.get_all_units() # '*' representa acesso global
+    unit_names = ["*"] + matrix_manager.get_all_units()
 
     with st.form("user_form"):
         email = st.text_input("E-mail", value=user_data['email'] if is_edit_mode else "", disabled=is_edit_mode)
@@ -290,27 +292,33 @@ def show_admin_page():
         if pending_requests_df.empty:
             st.info("Nenhuma solicitação de acesso pendente no momento.")
         else:
-            st.write("Aprove os novos usuários definindo um papel (role) e clicando em 'Aprovar'.")
+            st.write("Aprove ou rejeite os novos usuários.")
             
             for index, row in pending_requests_df.iterrows():
                 with st.container(border=True):
-                    col1, col2, col3, col4 = st.columns([2, 2, 1.5, 1.5])
+                    col1, col2, col3, col_approve, col_reject = st.columns([2.5, 2, 1.5, 1, 1])
                     col1.text_input("E-mail", value=row['email'], disabled=True, key=f"email_{index}")
                     col2.text_input("Unidade", value=row['unidade_solicitada'], disabled=True, key=f"unit_{index}")
                     
-                    # Dropdown para selecionar o papel
                     role_to_assign = col3.selectbox(
                         "Definir Papel",
                         options=["viewer", "editor", "admin"],
-                        index=0, # 'viewer' como padrão
+                        index=0, 
                         key=f"role_{index}"
                     )
                     
-                    # Botão de aprovação
-                    if col4.button("Aprovar Acesso", key=f"approve_{index}", type="primary"):
+                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", use_container_width=True):
                         with st.spinner(f"Aprovando {row['email']}..."):
                             if matrix_manager.approve_access_request(row['email'], role_to_assign):
-                                st.success(f"Usuário {row['email']} aprovado e adicionado ao sistema!")
+                                st.success(f"Usuário {row['email']} aprovado!")
                                 st.rerun()
                             else:
                                 st.error(f"Falha ao aprovar {row['email']}.")
+                    
+                    if col_reject.button("Rejeitar", key=f"reject_{index}", use_container_width=True):
+                        with st.spinner(f"Rejeitando {row['email']}..."):
+                            if matrix_manager.reject_access_request(row['email']):
+                                st.warning(f"Solicitação de {row['email']} rejeitada.")
+                                st.rerun()
+                            else:
+                                st.error(f"Falha ao rejeitar {row['email']}.")
