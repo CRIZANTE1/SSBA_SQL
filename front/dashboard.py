@@ -5,6 +5,22 @@ from auth.auth_utils import check_permission
 from operations.incident_manager import get_incident_manager, IncidentManager
 from operations.audit_logger import log_action
 
+def convert_drive_url_to_displayable(url: str) -> str | None:
+    """
+    Converte uma URL de visualização do Google Drive para um formato
+    que pode ser exibido diretamente por st.image ou tags <img>.
+    """
+    if not isinstance(url, str) or 'drive.google.com' not in url:
+        return url # Retorna a URL original se não for do Drive ou for inválida
+    
+    try:
+        # Extrai o ID do arquivo da URL
+        file_id = url.split('/d/')[1].split('/')[0]
+        return f'https://drive.google.com/uc?export=view&id={file_id}'
+    except IndexError:
+        # Retorna a URL original se o formato for inesperado
+        return url
+
 @st.dialog("Análise de Abrangência do Incidente")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
