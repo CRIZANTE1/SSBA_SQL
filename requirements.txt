@@ -16,3 +16,5 @@ gspread
 python-dateutil
 pyyaml
 streamlit-option-menu
+fuzzywuzzy
+python-Levenshtein
