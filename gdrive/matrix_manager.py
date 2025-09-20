@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import logging
 import gspread
+from datetime import datetime
 from operations.sheet import SheetOperations
 from operations.audit_logger import log_action
 
@@ -16,8 +17,8 @@ def get_matrix_manager():
 
 class MatrixManager:
     """
-    Gerencia os dados de controle da Planilha Principal: usuários e logs de auditoria.
-    A gestão de uma lista explícita de UOs foi removida para simplificação.
+    Gerencia os dados de controle da Planilha Principal: usuários, solicitações de acesso
+    e logs de auditoria.
     """
     def __init__(self):
         self.sheet_ops = SheetOperations()
@@ -72,7 +73,6 @@ class MatrixManager:
                 worksheet.update_cells(cells_to_update, value_input_option='USER_ENTERED')
                 log_action("UPDATE_USER", {"email": email, "updates": updates})
                 st.cache_data.clear()
-                logger.info(f"Usuário '{email}' atualizado com sucesso.")
                 return True
             return False
         except Exception as e:
@@ -97,11 +97,12 @@ class MatrixManager:
             logger.error(f"Erro ao remover usuário '{user_email}': {e}", exc_info=True)
             return False
 
+    # --- Métodos de Solicitação de Acesso ---
 
-     def add_access_request(self, email: str, name: str, unit: str) -> bool:
+    def add_access_request(self, email: str, name: str, unit: str) -> bool:
         """Adiciona um novo pedido de acesso à aba de solicitações."""
         requests_df = self.get_pending_access_requests()
-        if not requests_df[requests_df['email'].str.lower() == email.lower()].empty:
+        if not requests_df.empty and not requests_df[requests_df['email'].str.lower() == email.lower()].empty:
             logger.warning(f"Solicitação de acesso duplicada para {email}. Nenhuma ação tomada.")
             return True
 
