@@ -1,10 +1,8 @@
-
-
 import streamlit as st
 import pandas as pd
 import logging
 from operations.sheet import SheetOperations
-from gdrive.config import SPREADSHEET_ID 
+from gdrive.config import SPREADSHEET_ID # <-- Importa o ID da planilha principal
 
 logger = logging.getLogger('abrangencia_app.incident_manager')
 
@@ -25,7 +23,7 @@ class IncidentManager:
             self._action_plan_df = pd.DataFrame()
             return
 
-        self.sheet_ops = SheetOperations(SPREADSHEET_ID)
+        self.sheet_ops = SheetOperations() # Não precisa mais de argumento
         self._incidents_df = None
         self._blocking_actions_df = None
         self._action_plan_df = None
