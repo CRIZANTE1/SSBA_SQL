@@ -3,16 +3,19 @@ import os
 import tempfile
 import yaml
 import gspread
-import logging 
+import logging
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from .config import get_credentials_dict
 
-# --- 2. Logger adicionado para consistência ---
-logger = logging.getLogger('segsisone_app.google_api_manager')
+logger = logging.getLogger('abrangencia_app.google_api_manager')
 
 class GoogleApiManager:
+    """
+    Classe central para gerenciar todas as interações com as APIs do Google (Drive e Sheets).
+    Esta classe consolida a criação de planilhas, pastas, upload e exclusão de arquivos.
+    """
     def __init__(self):
         self.SCOPES = [
             'https://www.googleapis.com/auth/drive',
@@ -24,14 +27,17 @@ class GoogleApiManager:
                 credentials_dict,
                 scopes=self.SCOPES
             )
+            # cache_discovery=False é recomendado para evitar warnings em ambientes serverless
             self.drive_service = build('drive', 'v3', credentials=self.credentials, cache_discovery=False)
             self.sheets_service = build('sheets', 'v4', credentials=self.credentials, cache_discovery=False)
             self.gspread_client = gspread.authorize(self.credentials)
         except Exception as e:
             st.error(f"Erro crítico ao inicializar os serviços do Google: {str(e)}")
+            logger.critical(f"Falha na inicialização do GoogleApiManager: {e}", exc_info=True)
             raise
 
     def open_spreadsheet(self, spreadsheet_id: str):
+        """Abre uma planilha do Google Sheets usando seu ID."""
         try:
             return self.gspread_client.open_by_key(spreadsheet_id)
         except gspread.exceptions.SpreadsheetNotFound:
@@ -41,41 +47,80 @@ class GoogleApiManager:
             st.error(f"Erro ao abrir a planilha com gspread: {e}")
             return None
 
-    # --- 3. Bloco de upload comentado foi REMOVIDO e a função principal foi mantida ---
     def upload_file(self, folder_id: str, arquivo, novo_nome: str = None):
-        """Faz upload de um arquivo (UploadedFile do Streamlit) para uma pasta específica no Google Drive."""
+        """
+        Faz upload de um arquivo (UploadedFile do Streamlit) para uma pasta específica no Google Drive,
+        exibindo uma barra de progresso na interface do Streamlit.
+        """
         if not folder_id:
             st.error("Erro de programação: ID da pasta não foi fornecido para o upload.")
             return None
-        
+
+        progress_bar = st.progress(0, text="Iniciando upload...")
         temp_file_path = None
+        
         try:
+            # Salva o conteúdo do UploadedFile em um arquivo temporário
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(arquivo.name)[1]) as temp_file:
                 temp_file.write(arquivo.getvalue())
                 temp_file_path = temp_file.name
+            progress_bar.progress(25, text="Arquivo preparado para upload...")
 
             file_metadata = {
                 'name': novo_nome if novo_nome else arquivo.name,
                 'parents': [folder_id]
             }
             media = MediaFileUpload(temp_file_path, mimetype=arquivo.type, resumable=True)
-            
+            progress_bar.progress(50, text="Enviando para o Google Drive...")
+
+            # Executa a criação do arquivo no Google Drive
             file = self.drive_service.files().create(
                 body=file_metadata, media_body=media, fields='id,webViewLink'
             ).execute()
             
+            progress_bar.progress(100, text="Upload concluído!")
             return file.get('webViewLink')
+
         except Exception as e:
+            progress_bar.empty() # Limpa a barra de progresso em caso de erro
             if "HttpError 404" in str(e):
-                st.error(f"Erro no upload: A pasta do Google Drive com ID '{folder_id}' não foi encontrada ou a conta de serviço não tem permissão.")
+                st.error(f"Erro no upload: A pasta do Google Drive com ID '{folder_id}' não foi encontrada ou a conta de serviço não tem permissão de acesso.")
             else:
                 st.error(f"Erro ao fazer upload do arquivo: {str(e)}")
+            logger.error(f"Falha no upload para folder_id {folder_id}: {e}", exc_info=True)
             return None
         finally:
+            # Garante que o arquivo temporário seja removido
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
+    def delete_file_by_url(self, file_url: str) -> bool:
+        """
+        Deleta um arquivo do Google Drive usando sua URL de visualização.
+        Extrai o ID do arquivo da URL e executa a exclusão.
+        """
+        if not file_url or not isinstance(file_url, str):
+            logger.warning("URL de arquivo inválida ou vazia fornecida para exclusão.")
+            return False
+        try:
+            # Extrai o ID do arquivo da URL. Ex: .../d/{FILE_ID}/view
+            file_id = file_url.split('/d/')[1].split('/')[0]
+        except IndexError:
+            logger.error(f"URL do Google Drive em formato inválido, não foi possível extrair o ID: {file_url}")
+            return False
+        
+        try:
+            logger.info(f"Tentando deletar o arquivo com ID: {file_id}")
+            self.drive_service.files().delete(fileId=file_id).execute()
+            logger.info(f"Arquivo com ID {file_id} deletado com sucesso.")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao deletar arquivo do Google Drive (ID: {file_id}): {e}")
+            st.error(f"Erro ao deletar arquivo do Google Drive: {e}")
+            return False
+
     def create_folder(self, name: str, parent_folder_id: str = None):
+        """Cria uma nova pasta no Google Drive."""
         try:
             file_metadata = {'name': name, 'mimeType': 'application/vnd.google-apps.folder'}
             if parent_folder_id:
@@ -87,6 +132,7 @@ class GoogleApiManager:
             return None
 
     def create_spreadsheet(self, name: str, folder_id: str = None):
+        """Cria uma nova planilha em branco no Google Drive."""
         try:
             file_metadata = {'name': name, 'mimeType': 'application/vnd.google-apps.spreadsheet'}
             if folder_id:
@@ -98,6 +144,10 @@ class GoogleApiManager:
             return None
 
     def setup_sheets_from_config(self, spreadsheet_id: str, config_path: str = "sheets_config.yaml"):
+        """
+        Configura as abas de uma nova planilha com base em um arquivo de configuração YAML.
+        Isso é usado na funcionalidade (agora removida) de provisionamento de novas unidades.
+        """
         try:
             # Garante que o caminho para o YAML seja relativo ao script atual
             config_full_path = os.path.join(os.path.dirname(__file__), '..', config_path)
@@ -120,23 +170,4 @@ class GoogleApiManager:
             return True
         except Exception as e:
             st.error(f"Erro ao configurar as abas da nova planilha: {e}")
-            return False
-            
-    def delete_file_by_url(self, file_url: str) -> bool:
-        if not file_url or not isinstance(file_url, str):
-            logger.warning("URL de arquivo inválida ou vazia fornecida para exclusão.")
-            return False
-        try:
-            file_id = file_url.split('/d/')[1].split('/')[0]
-        except IndexError:
-            logger.error(f"URL do Google Drive em formato inválido: {file_url}")
-            return False
-        try:
-            logger.info(f"Tentando deletar o arquivo com ID: {file_id}")
-            self.drive_service.files().delete(fileId=file_id).execute()
-            logger.info(f"Arquivo com ID {file_id} deletado com sucesso.")
-            return True
-        except Exception as e:
-            logger.error(f"Erro ao deletar arquivo do Google Drive (ID: {file_id}): {e}")
-            st.error(f"Erro ao deletar arquivo do Google Drive: {e}")
             return False
