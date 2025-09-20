@@ -210,13 +210,13 @@ def show_admin_page():
     
     st.title("🚀 Painel de Administração")
 
-    # Garante que apenas o usuário global acesse esta página
     if st.session_state.get('unit_name') != 'Global':
         st.error("Acesso restrito ao Administrador Global.")
         st.stop()
-
-    tab_incident, tab_users, tab_units, tab_logs = st.tabs([
-        "Cadastrar Alerta", "Gerenciar Usuários", "Gerenciar Unidades", "Logs de Auditoria"
+    
+    # <<< MUDANÇA IMPORTANTE: Abas simplificadas >>>
+    tab_incident, tab_users, tab_logs = st.tabs([
+        "Cadastrar Alerta", "Gerenciar Usuários", "Logs de Auditoria"
     ])
 
     with tab_incident:
@@ -233,7 +233,6 @@ def show_admin_page():
         if not all_users_df.empty:
             st.write("Clique em uma linha para editar ou remover um usuário.")
             
-            # Usando st.dataframe com seleção para abrir diálogos de edição/exclusão
             selected_user = st.dataframe(
                 all_users_df,
                 use_container_width=True,
@@ -258,30 +257,6 @@ def show_admin_page():
                         st.error("Falha ao remover usuário.")
         else:
             st.info("Nenhum usuário cadastrado.")
-
-    with tab_units:
-        st.header("Gerenciar Unidades Operacionais")
-        matrix_manager = get_matrix_manager()
-        
-        with st.form("add_unit_form"):
-            new_unit_name = st.text_input("Nome da Nova Unidade")
-            if st.form_submit_button("Adicionar Unidade"):
-                if not new_unit_name:
-                    st.error("O nome da unidade não pode ser vazio.")
-                elif new_unit_name in matrix_manager.get_all_units():
-                    st.error(f"A unidade '{new_unit_name}' já existe.")
-                else:
-                    if matrix_manager.add_unit(new_unit_name):
-                        st.success(f"Unidade '{new_unit_name}' adicionada!")
-                        st.rerun()
-                    else:
-                        st.error("Falha ao adicionar a unidade.")
-        
-        st.divider()
-        st.subheader("Unidades Existentes")
-        units_df = pd.DataFrame(matrix_manager.get_all_units(), columns=["Nome da Unidade"])
-        st.dataframe(units_df, use_container_width=True, hide_index=True)
-
 
     with tab_logs:
         st.header("📜 Logs de Auditoria do Sistema")
