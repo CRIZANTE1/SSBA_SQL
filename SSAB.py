@@ -54,28 +54,23 @@ def main():
 
     is_authorized = authenticate_user()
 
+    # <<< MUDANÇA IMPORTANTE: O botão de logout agora fica na sidebar para todas as telas de "não autorizado" >>>
     if not is_authorized:
         access_status = st.session_state.get('access_status')
         if access_status == "pending":
             st.title("Acesso Pendente")
             st.success("Sua solicitação de acesso foi recebida e está aguardando aprovação.")
-            with st.sidebar:
-                show_logout_button() # Manter o botão de logout visível
         elif access_status == "unauthorized":
             show_request_access_form()
-            with st.sidebar:
-                show_logout_button() # Manter o botão de logout visível
+        
+        # Coloca o botão de logout na sidebar, que ainda está visível
+        with st.sidebar:
+            show_logout_button()
         return
 
-    # --- Layout Comum (Sidebar) ---
-    with st.sidebar:
-        show_user_header()
-        st.divider()
-
-    # --- Definição das Páginas com Seções ---
+    # --- Definição das Páginas ---
     user_role = get_user_role()
 
-    # Define a estrutura de páginas usando um dicionário para criar seções
     pages = {
         "Menu Principal": [
             st.Page("pages/dashboard_page.py", title="Consultar Abrangência", icon="🗂️", default=True),
@@ -83,22 +78,24 @@ def main():
         ]
     }
 
-    # Adiciona a seção de Administração dinamicamente se o usuário for 'admin'
     if user_role == 'admin':
         pages["Configurações"] = [
             st.Page("pages/admin_page.py", title="Administração", icon="⚙️")
         ]
 
-    # Cria o menu de navegação a partir do dicionário de páginas
-    # O menu será renderizado na sidebar por padrão, com seções expansíveis
-    pg = st.navigation(pages)
+    # --- Criação da Navegação no TOPO da página ---
+    pg = st.navigation(pages, position="top")
     
-    # Adiciona o botão de logout na sidebar, abaixo do menu de navegação
+    # --- Conteúdo da Sidebar (agora separada da navegação) ---
     with st.sidebar:
+        show_user_header()
+        st.divider()
+        # Adicione aqui outros filtros ou informações que você queira que sejam persistentes
+        st.info("Filtros globais ou outras informações podem ser adicionados aqui.")
+        st.divider()
         show_logout_button()
 
     # --- Execução da Página Selecionada ---
-    # st.navigation já cuida da renderização do menu
     st.header(pg.title)
     logger.info(f"Usuário '{get_user_email()}' executando a página: {pg.title}")
     pg.run()
