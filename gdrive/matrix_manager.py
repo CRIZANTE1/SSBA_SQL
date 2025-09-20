@@ -35,14 +35,6 @@ class MatrixManager:
     def get_all_users_df(self) -> pd.DataFrame:
         return self._get_df("usuarios")
 
-    def get_user_info(self, email: str) -> dict | None:
-        users_df = self.get_all_users_df()
-        if users_df.empty or 'email' not in users_df.columns:
-            return None
-        
-        user_info = users_df[users_df['email'].str.lower().str.strip() == email.lower().strip()]
-        return user_info.iloc[0].to_dict() if not user_info.empty else None
-
     def get_all_units(self) -> list[str]:
         """
         Retorna uma lista de nomes de unidades operacionais únicas a partir da
@@ -59,6 +51,14 @@ class MatrixManager:
         unit_list = sorted([str(unit) for unit in units if unit and str(unit).strip() and str(unit) != '*'])
         
         return unit_list
+
+    def get_user_info(self, email: str) -> dict | None:
+        users_df = self.get_all_users_df()
+        if users_df.empty or 'email' not in users_df.columns:
+            return None
+        
+        user_info = users_df[users_df['email'].str.lower().str.strip() == email.lower().strip()]
+        return user_info.iloc[0].to_dict() if not user_info.empty else None
         
     def add_user(self, user_data: list) -> bool:
         logger.info(f"Adicionando novo usuário: {user_data[0]}")
