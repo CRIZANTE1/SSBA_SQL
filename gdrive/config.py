@@ -1,4 +1,3 @@
-
 import os
 import json
 import streamlit as st
@@ -6,20 +5,27 @@ import logging
 
 logger = logging.getLogger('abrangencia_app.config')
 
-# --- LEITURA DAS CONFIGURAÇÕES A PARTIR DOS SECRETS ---
 
 SPREADSHEET_ID = None
-CENTRAL_ALERTS_FOLDER_ID = None
+PUBLIC_IMAGES_FOLDER_ID = None
+RESTRICTED_ATTACHMENTS_FOLDER_ID = None
 CENTRAL_LOG_SHEET_NAME = "log_auditoria" 
 
 try:
     if hasattr(st, 'secrets') and 'app_settings' in st.secrets:
-        SPREADSHEET_ID = st.secrets.app_settings.get("spreadsheet_id")
-        CENTRAL_ALERTS_FOLDER_ID = st.secrets.app_settings.get("central_alerts_folder_id")
+        app_settings = st.secrets.app_settings
+        SPREADSHEET_ID = app_settings.get("spreadsheet_id")
+        PUBLIC_IMAGES_FOLDER_ID = app_settings.get("public_images_folder_id")
+        RESTRICTED_ATTACHMENTS_FOLDER_ID = app_settings.get("restricted_attachments_folder_id")
         
-        if not SPREADSHEET_ID or not CENTRAL_ALERTS_FOLDER_ID:
-            st.error("Erro Crítico: As configurações 'spreadsheet_id' e/ou 'central_alerts_folder_id' estão faltando em [app_settings] no seu arquivo secrets.toml.")
-            logger.critical("Configurações essenciais (spreadsheet_id, central_alerts_folder_id) ausentes nos secrets.")
+        if not all([SPREADSHEET_ID, PUBLIC_IMAGES_FOLDER_ID, RESTRICTED_ATTACHMENTS_FOLDER_ID]):
+            missing = [k for k, v in {
+                "spreadsheet_id": SPREADSHEET_ID, 
+                "public_images_folder_id": PUBLIC_IMAGES_FOLDER_ID, 
+                "restricted_attachments_folder_id": RESTRICTED_ATTACHMENTS_FOLDER_ID
+            }.items() if not v]
+            st.error(f"Erro Crítico: As seguintes configurações estão faltando em [app_settings] no seu secrets.toml: {', '.join(missing)}")
+            logger.critical(f"Configurações essenciais ausentes nos secrets: {', '.join(missing)}")
     else:
         st.error("Erro Crítico: A seção [app_settings] não foi encontrada no seu arquivo secrets.toml.")
         logger.critical("Seção [app_settings] não encontrada nos secrets.")
@@ -28,7 +34,8 @@ except Exception as e:
     st.error(f"Erro ao ler as configurações do secrets.toml: {e}")
     logger.critical(f"Erro inesperado ao ler secrets: {e}")
 
-# --- FUNÇÃO DE CREDENCIAIS ---
+
+# --- FUNÇÃO DE CREDENCIAIS (permanece a mesma) ---
 
 def get_credentials_dict():
     """
