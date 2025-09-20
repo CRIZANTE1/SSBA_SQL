@@ -18,16 +18,13 @@ def get_user_permissions() -> pd.DataFrame:
             st.warning("A aba 'usuarios' está vazia ou não contém dados de usuários.")
             return pd.DataFrame(columns=expected_cols)
         
-        # Cria o DataFrame com o cabeçalho da planilha
         header = [h.strip().lower() for h in users_data[0]]
         df = pd.DataFrame(users_data[1:], columns=header)
         
-
         if 'email' not in df.columns or 'role' not in df.columns:
             st.error("ERRO CRÍTICO: A aba 'usuarios' na sua planilha precisa ter as colunas 'email' e 'role'.")
             return pd.DataFrame(columns=expected_cols)
 
-        # Seleciona apenas as colunas necessárias e as trata
         permissions_df = df[['email', 'role']].copy()
         permissions_df['email'] = permissions_df['email'].str.lower().str.strip()
         permissions_df['role'] = permissions_df['role'].str.lower().str.strip()
@@ -44,7 +41,9 @@ def is_user_logged_in():
 
 def get_user_email() -> str | None:
     """Retorna o e-mail do usuário logado."""
-    if is_user_logged_in() and hasattr(st, 'user', 'email'):
+    # --- CORREÇÃO APLICADA AQUI ---
+    # A verificação agora é feita em duas etapas, da forma correta.
+    if is_user_logged_in() and hasattr(st.user, 'email'):
         return st.user.email.lower().strip()
     return None
 
@@ -61,11 +60,10 @@ def get_user_role() -> str:
     """
     user_email = get_user_email()
     if not user_email:
-        return 'viewer' # Padrão seguro para não logado
+        return 'viewer'
 
     permissions_df = get_user_permissions()
     
-    # Armazena o e-mail na sessão para uso no log de auditoria
     st.session_state.user_info = {'email': user_email}
 
     user_entry = permissions_df[permissions_df['email'] == user_email]
