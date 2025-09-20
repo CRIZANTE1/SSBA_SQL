@@ -5,7 +5,6 @@ from datetime import datetime
 from auth.auth_utils import check_permission
 from operations.incident_manager import IncidentManager
 
-# --- FUNÇÃO DE INICIALIZAÇÃO SINGLE-TENANT ---
 @st.cache_resource
 def get_incident_manager():
     """Garante que o IncidentManager seja instanciado apenas uma vez por sessão."""
@@ -20,7 +19,6 @@ def show_plano_acao_page():
     if not check_permission(level='viewer'):
         st.stop()
 
-    # Usa a função cacheada para obter a instância única do manager
     incident_manager = get_incident_manager()
 
     # --- CARREGAMENTO E JUNÇÃO DOS DADOS ---
@@ -41,8 +39,23 @@ def show_plano_acao_page():
         st.success("🎉 Nenhum item no plano de ação de abrangência.")
         st.stop()
 
+    # --- FILTRO POR UNIDADE OPERACIONAL ---
+    st.subheader("Filtro de Visualização")
+    unit_options = ["Todas"] + sorted(action_plan_df['unidade_operacional'].unique().tolist())
+    selected_unit = st.selectbox("Selecione a Unidade Operacional para visualizar:", options=unit_options)
+
+    if selected_unit != "Todas":
+        action_plan_df = action_plan_df[action_plan_df['unidade_operacional'] == selected_unit]
+
+    st.divider()
+
+    if action_plan_df.empty:
+        st.info(f"Nenhum item no plano de ação para a unidade '{selected_unit}'.")
+        st.stop()
+
+    # Junta os dataframes para adicionar a descrição da ação
     if blocking_actions_df.empty:
-        st.warning("Não foi possível carregar as descrições das ações de bloqueio da planilha central.")
+        st.warning("Não foi possível carregar as descrições das ações de bloqueio.")
         merged_df = action_plan_df
         merged_df['descricao_acao'] = "Descrição não encontrada"
     else:
@@ -55,7 +68,6 @@ def show_plano_acao_page():
         ).drop(columns=['id_y']).rename(columns={'id_x': 'id'})
         merged_df['descricao_acao'].fillna('Descrição não encontrada', inplace=True)
 
-    # Armazena o dataframe original no estado da sessão para comparação
     if 'original_action_plan' not in st.session_state:
         st.session_state.original_action_plan = merged_df.copy()
 
@@ -65,8 +77,7 @@ def show_plano_acao_page():
     edited_df = st.data_editor(
         merged_df,
         column_config={
-            "id": None,
-            "id_acao_bloqueio": None,
+            "id": None, "id_acao_bloqueio": None,
             "unidade_operacional": st.column_config.TextColumn("Unidade", disabled=True),
             "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", disabled=True, width="large"),
             "responsavel_email": st.column_config.TextColumn("Responsável", disabled=True),
@@ -88,18 +99,14 @@ def show_plano_acao_page():
 
     if not edited_df.equals(original_df):
         with st.spinner("Salvando alterações..."):
-            # Encontra as diferenças entre o dataframe original e o editado
             changes = original_df.compare(edited_df)
             
             for index in changes.index:
                 action_id = original_df.loc[index, 'id']
                 
-                # Verifica se a coluna 'status' foi a que mudou
                 if ('status', 'other') in changes.columns:
                     new_status = changes.loc[index, ('status', 'other')]
-                    
                     updates = {"status": new_status}
-                    # Se o status for 'Concluído', adiciona a data de conclusão
                     if new_status == "Concluído":
                         updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
 
@@ -109,7 +116,6 @@ def show_plano_acao_page():
                     else:
                         st.error(f"Falha ao atualizar o status da ação ID {action_id}.")
             
-            # Atualiza o estado da sessão e limpa o cache para refletir a mudança
             st.session_state.original_action_plan = edited_df.copy()
             st.cache_data.clear()
             st.rerun()
