@@ -12,22 +12,19 @@ def convert_drive_url_to_displayable(url: str) -> str | None:
     que é mais confiável para exibição direta em st.image.
     """
     if not isinstance(url, str) or 'drive.google.com' not in url:
-        return None # Retorna None se a URL for inválida
+        return None
     
     try:
-        # Extrai o ID do arquivo de diferentes formatos de URL
         if '/d/' in url:
             file_id = url.split('/d/')[1].split('/')[0]
         elif 'id=' in url:
             file_id = url.split('id=')[1].split('&')[0]
         else:
-            return None # Formato de URL não reconhecido
+            return None
 
-        # Retorna a URL no formato de thumbnail
         return f'https://drive.google.com/thumbnail?id={file_id}'
     
     except IndexError:
-        # Se a extração do ID falhar
         return None
         
 @st.dialog("Análise de Abrangência do Incidente")
@@ -40,7 +37,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.caption(f"Alerta: {incident.get('numero_alerta')} | Data: {pd.to_datetime(incident.get('data_evento'), dayfirst=True).strftime('%d/%m/%Y')}")
     st.divider()
 
-    # Detalhes do incidente
     st.markdown(f"**O que aconteceu?**")
     st.write(incident.get('o_que_aconteceu'))
     st.markdown(f"**Por que aconteceu?**")
@@ -58,7 +54,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.subheader("Selecione as ações aplicáveis")
     
     with st.form("abrangencia_dialog_form"):
-        # --- LÓGICA CONDICIONAL PARA O ADMIN GLOBAL ---
         is_admin = st.session_state.get('unit_name') == 'Global'
         target_unit_name = None
 
@@ -78,9 +73,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
             else:
                 target_unit_name = chosen_option
         else:
-            # Para usuários normais, a UO é a sua própria, sem opção de escolha.
             st.markdown(f"**Unidade Operacional:** `{st.session_state.unit_name}`")
-        # --- FIM DA LÓGICA CONDICIONAL ---
 
         pertinent_actions = {}
         for _, action in blocking_actions.iterrows():
@@ -112,7 +105,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
         if submitted:
-            # Define qual nome de unidade será salvo
             if is_admin:
                 unit_to_save = target_unit_name
                 if not unit_to_save or not unit_to_save.strip():
@@ -122,7 +114,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                 unit_to_save = st.session_state.unit_name
 
             if not pertinent_actions:
-                st.warning("Nenhuma ação foi selecionada. Para concluir a análise, selecione ao menos uma ação aplicável.")
+                st.warning("Nenhuma ação foi selecionada.")
                 return
             if not responsavel_email or not prazo_inicial:
                 st.error("O e-mail do responsável principal e o prazo são obrigatórios.")
@@ -149,62 +141,101 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
             st.rerun()
 
 
-def display_incident_list(incident_manager: IncidentManager):
-    """
-    Exibe a lista de incidentes que AINDA NÃO foram abrangidos pela unidade do usuário.
-    """
-    st.title("Dashboard de Incidentes")
-    st.subheader("Alertas Pendentes de Abrangência")
-    
-    all_incidents_df = incident_manager.get_all_incidents()
-    user_unit = st.session_state.get('unit_name', 'Global')
-
-    if all_incidents_df.empty:
-        st.info("Nenhum alerta de incidente cadastrado no sistema.")
-        return
-
-    if user_unit == 'Global':
-        incidents_to_show_df = all_incidents_df
-        st.info("Visão de Administrador: mostrando todos os alertas globais.")
-    else:
-        covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
-        incidents_to_show_df = all_incidents_df[~all_incidents_df['id'].isin(covered_incident_ids)]
-
-    if incidents_to_show_df.empty:
-        st.success(f"🎉 Todos os alertas de incidentes já foram analisados pela unidade **{user_unit}**.")
-        return
-
-    try:
-        incidents_to_show_df['data_evento_dt'] = pd.to_datetime(incidents_to_show_df['data_evento'], dayfirst=True)
-        sorted_incidents = incidents_to_show_df.sort_values(by="data_evento_dt", ascending=False)
-    except Exception:
-        sorted_incidents = incidents_to_show_df
-
-    st.write(f"Exibindo **{len(sorted_incidents)}** alerta(s) pendente(s) para a unidade **{user_unit}**.")
-
-    cols = st.columns(3)
-    for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
-        col = cols[i % 3]
-        with col.container(border=True):
-            
-            foto_url = incident.get('foto_url')
-
-            if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
-                display_url = convert_drive_url_to_displayable(foto_url)
-                if display_url:
-                    st.image(display_url, use_container_width=True)
-                else:
-                    st.caption("Imagem não disponível ou URL inválida")
+def render_incident_card(incident, col, incident_manager, is_pending):
+    """Função auxiliar para renderizar um card de incidente."""
+    with col.container(border=True):
+        foto_url = incident.get('foto_url')
+        if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
+            display_url = convert_drive_url_to_displayable(foto_url)
+            if display_url:
+                st.image(display_url, use_container_width=True)
             else:
-                st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
-                st.caption("Sem imagem anexada")
+                st.caption("Imagem não disponível ou URL inválida")
+        else:
+            st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
+            st.caption("Sem imagem anexada")
 
-            st.subheader(incident.get('evento_resumo'))
-            st.write(incident.get('o_que_aconteceu'))
-            
+        st.subheader(incident.get('evento_resumo'))
+        st.write(incident.get('o_que_aconteceu'))
+        
+        if is_pending:
             if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
                 abrangencia_dialog(incident, incident_manager)
+        else:
+            st.success("✔ Análise Registrada", icon="✅")
 
+
+def display_incident_list(incident_manager: IncidentManager):
+    """
+    Exibe a lista de todos os incidentes, separando-os em pendentes e analisados
+    para as unidades operacionais, e mostrando apenas pendências globais para o Admin.
+    """
+    st.title("Dashboard de Incidentes")
+    
+    user_unit = st.session_state.get('unit_name', 'Global')
+    matrix_manager = get_matrix_manager()
+
+    # --- LÓGICA DE EXIBIÇÃO ---
+    
+    # Se for Admin Global, usa a nova lógica de verificação
+    if user_unit == 'Global':
+        st.subheader("Alertas com Abrangência Pendente no Sistema")
+        all_active_units = matrix_manager.get_all_units()
+        
+        if not all_active_units:
+            st.warning("Não há unidades operacionais cadastradas no sistema. A visão de pendências globais não pode ser calculada.")
+            st.info("Cadastre usuários e associe-os a unidades no painel de Administração.")
+            return
+
+        incidents_to_show_df = incident_manager.get_globally_pending_incidents(all_active_units)
+
+        if incidents_to_show_df.empty:
+            st.success("🎉 Todos os alertas foram analisados por todas as unidades operacionais ativas!")
+        else:
+            st.info(f"Exibindo **{len(incidents_to_show_df)}** alerta(s) que ainda possuem pendências em ao menos uma UO.")
+            cols = st.columns(3)
+            for i, (_, incident) in enumerate(incidents_to_show_df.iterrows()):
+                col = cols[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=True)
+
+    # Se for uma UO específica, a lógica anterior de 'pendente vs analisado' se mantém
+    else:
+        all_incidents_df = incident_manager.get_all_incidents()
+        if all_incidents_df.empty:
+            st.info("Nenhum alerta de incidente cadastrado no sistema.")
+            return
+
+        try:
+            all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
+            sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
+        except Exception:
+            sorted_incidents = all_incidents_df
+
+        covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
+        
+        pending_incidents_df = sorted_incidents[~sorted_incidents['id'].isin(covered_incident_ids)]
+        covered_incidents_df = sorted_incidents[sorted_incidents['id'].isin(covered_incident_ids)]
+
+        st.subheader("🚨 Alertas Pendentes de Análise")
+        if pending_incidents_df.empty:
+            st.success(f"🎉 Ótimo trabalho! Não há alertas pendentes para a unidade **{user_unit}**.")
+        else:
+            st.write(f"Você tem **{len(pending_incidents_df)}** alerta(s) para analisar.")
+            cols_pending = st.columns(3)
+            for i, (_, incident) in enumerate(pending_incidents_df.iterrows()):
+                col = cols_pending[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=True)
+
+        st.divider()
+
+        st.subheader("✅ Alertas já Analisados")
+        if covered_incidents_df.empty:
+            st.info("Nenhum alerta foi analisado por esta unidade ainda.")
+        else:
+            cols_covered = st.columns(3)
+            for i, (_, incident) in enumerate(covered_incidents_df.iterrows()):
+                col = cols_covered[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=False)
 
 def show_dashboard_page():
     """Ponto de entrada principal para a página do dashboard."""
