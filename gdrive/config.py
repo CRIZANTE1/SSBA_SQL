@@ -1,60 +1,73 @@
-# gdrive/config.py
-
 import os
 import json
 import streamlit as st
+import logging
 
-# ID da Planilha Matriz que controla todos os tenants (unidades).
-MATRIX_SPREADSHEET_ID = "15DCVTsjERd2_LyXMVla6V2BeO1g_uZbvLHzecT-eZts"
+logger = logging.getLogger('abrangencia_app.config')
 
-# ID da Pasta Raiz no Google Drive onde todas as pastas das unidades serão criadas.
-CENTRAL_DRIVE_FOLDER_ID = "1klJot9630Hxo2vWLSDGQH-QC3yux5KT5"
 
-# ID da Pasta no Google Drive para armazenar anexos e fotos de alertas de incidentes.
-CENTRAL_ALERTS_FOLDER_ID = "ID_DA_SUA_PASTA_DE_ALERTAS_AQUI" # <-- IMPORTANTE: Substitua pelo ID real
+SPREADSHEET_ID = None
+CENTRAL_ALERTS_FOLDER_ID = None
 
-# Nome da aba na planilha matriz para registrar os logs centralizados.
-CENTRAL_LOG_SHEET_NAME = "log_auditoria"
+try:
+    # Tenta ler as configurações da seção [app_settings] do secrets.toml
+    if hasattr(st, 'secrets') and 'app_settings' in st.secrets:
+        SPREADSHEET_ID = st.secrets.app_settings.get("spreadsheet_id")
+        CENTRAL_ALERTS_FOLDER_ID = st.secrets.app_settings.get("central_alerts_folder_id")
+        
+        if not SPREADSHEET_ID or not CENTRAL_ALERTS_FOLDER_ID:
+            st.error("Erro Crítico: As configurações 'spreadsheet_id' e/ou 'central_alerts_folder_id' estão faltando em [app_settings] no seu arquivo secrets.toml.")
+            logger.critical("Configurações essenciais (spreadsheet_id, central_alerts_folder_id) ausentes nos secrets.")
+    else:
+        # Este bloco será executado se a seção [app_settings] não existir
+        st.error("Erro Crítico: A seção [app_settings] não foi encontrada no seu arquivo secrets.toml.")
+        logger.critical("Seção [app_settings] não encontrada nos secrets.")
+
+except Exception as e:
+    st.error(f"Erro ao ler as configurações do secrets.toml: {e}")
+    logger.critical(f"Erro inesperado ao ler secrets: {e}")
+
+# --- FUNÇÃO DE CREDENCIAIS ---
 
 def get_credentials_dict():
     """
     Retorna as credenciais do serviço do Google, seja do Streamlit Cloud,
     do GitHub Actions ou de um arquivo local.
     """
- 
+    # 1. Tenta carregar do Streamlit Cloud Secrets
     if hasattr(st, 'runtime') and st.runtime.exists():
         try:
-           
-            return dict(st.secrets.connections.gsheets)
-        except (AttributeError, KeyError) as e:
+            creds = dict(st.secrets.connections.gsheets)
+            if creds:
+                logger.info("Credenciais carregadas com sucesso do Streamlit Cloud Secrets.")
+                return creds
+        except (AttributeError, KeyError):
             st.error("Erro: As credenciais [connections.gsheets] não foram encontradas nos Secrets do Streamlit.")
+            logger.critical("Credenciais [connections.gsheets] não encontradas nos Secrets do Streamlit.")
             raise
     
-    
-    else:
-        gcp_credentials_json = os.getenv("GCP_SERVICE_ACCOUNT_CREDENTIALS")
-        if gcp_credentials_json:
-            print("INFO: Credenciais encontradas na variável de ambiente (modo GitHub Actions).")
-            try:
-                return json.loads(gcp_credentials_json)
-            except json.JSONDecodeError:
-               
-                print("ERRO: A variável de ambiente GCP_SERVICE_ACCOUNT_CREDENTIALS não contém um JSON válido.")
-                raise
-
-        print("INFO: Tentando carregar credenciais do arquivo local 'credentials.json' (modo de desenvolvimento).")
-        credentials_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
+    # 2. Tenta carregar de Variáveis de Ambiente (para GitHub Actions)
+    gcp_credentials_json = os.getenv("GCP_SERVICE_ACCOUNT_CREDENTIALS")
+    if gcp_credentials_json:
+        logger.info("Credenciais encontradas na variável de ambiente (modo GitHub Actions).")
         try:
-            with open(credentials_path, 'r') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            
-            raise FileNotFoundError(
-                "Credenciais não encontradas. Para rodar fora do Streamlit Cloud, "
-                "configure a variável de ambiente 'GCP_SERVICE_ACCOUNT_CREDENTIALS' "
-                "ou coloque um arquivo 'credentials.json' na pasta 'gdrive/'."
-            )
-        except Exception as e:
-           
-            print(f"Erro ao carregar credenciais do arquivo local: {str(e)}")
-            raise
+            return json.loads(gcp_credentials_json)
+        except json.JSONDecodeError:
+            logger.critical("A variável de ambiente GCP_SERVICE_ACCOUNT_CREDENTIALS não contém um JSON válido.")
+            raise ValueError("A variável de ambiente GCP_SERVICE_ACCOUNT_CREDENTIALS não contém um JSON válido.")
+
+    # 3. Tenta carregar de um arquivo local (para desenvolvimento)
+    logger.info("Tentando carregar credenciais do arquivo local 'credentials.json' (modo de desenvolvimento).")
+    # O caminho é relativo à raiz do projeto, onde o script principal (SSAB.py) é executado.
+    credentials_path = os.path.join(os.path.dirname(__file__), '..', 'credentials.json')
+    try:
+        with open(credentials_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.critical("Arquivo 'credentials.json' não encontrado na raiz do projeto.")
+        raise FileNotFoundError(
+            "Credenciais não encontradas. Para rodar localmente, coloque um arquivo 'credentials.json' na pasta raiz do projeto."
+        )
+    except Exception as e:
+        logger.critical(f"Erro ao carregar credenciais do arquivo local: {e}")
+        raise
