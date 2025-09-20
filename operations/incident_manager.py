@@ -96,15 +96,25 @@ class IncidentManager:
         """Retorna todos os itens do plano de ação de abrangência da aba central."""
         return self.sheet_ops.get_df_from_worksheet("plano_de_acao_abrangencia")
 
-    def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
+    def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
         """
-        Adiciona um novo registro na aba central 'plano_de_acao_abrangencia'.
+        Adiciona um novo registro na aba central 'plano_de_acao_abrangencia',
+        incluindo o co-responsável.
         """
         logger.info(f"Adicionando ação de abrangência para a ação {id_acao_bloqueio} na unidade {unidade_operacional}.")
         prazo_str = prazo_inicial.strftime('%d/%m/%Y')
 
+        # Garante que o co-responsável seja uma string vazia se for None ou nulo
+        co_resp_email_str = co_responsavel_email if co_responsavel_email else ""
+
+        # A ordem aqui deve corresponder exatamente à ordem das colunas na sua planilha
         new_action_data = [
-            id_acao_bloqueio, unidade_operacional, responsavel_email, prazo_str, status
+            id_acao_bloqueio, 
+            unidade_operacional, 
+            responsavel_email, 
+            co_resp_email_str, # Nova coluna
+            prazo_str, 
+            status
         ]
 
         new_id = self.sheet_ops.adc_dados_aba("plano_de_acao_abrangencia", new_action_data)
