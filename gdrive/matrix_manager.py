@@ -16,7 +16,7 @@ def load_central_sheets_data():
     """
     logger.info("Carregando dados da Planilha Principal (pode usar cache)...")
     try:
-        sheet_ops = SheetOperations(SPREADSHEET_ID)
+        sheet_ops = SheetOperations()
         if not sheet_ops.spreadsheet:
             st.error("Erro Crítico: Não foi possível conectar à Planilha Principal.")
             return None, None, None, None
