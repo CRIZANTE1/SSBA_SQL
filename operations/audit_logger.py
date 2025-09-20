@@ -9,17 +9,16 @@ def log_action(action: str, details: dict):
     Registra uma ação do usuário na aba de log central da Planilha Principal.
     """
     try:
-        # Obtém as informações do usuário diretamente do st.session_state
         user_email = st.session_state.get('user_info', {}).get('email', 'system')
         user_role = st.session_state.get('role', 'N/A')
-        # Na arquitetura single-tenant, 'unit_name' pode não ser relevante, mas mantemos para consistência
-        target_unit = st.session_state.get('unit_name', 'SingleTenant')
+        target_unit = st.session_state.get('unit_name', 'SingleTenant') # Ajustado para single-tenant
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         details_str = json.dumps(details, ensure_ascii=False)
         log_row = [timestamp, user_email, user_role, action, details_str, target_unit]
 
-        main_sheet_ops = SheetOperations(SPREADSHEET_ID)
+
+        main_sheet_ops = SheetOperations()
         main_sheet_ops.adc_linha_simples(CENTRAL_LOG_SHEET_NAME, log_row)
         
         print(f"LOG SUCCESS: Action '{action}' by '{user_email}' logged.")
