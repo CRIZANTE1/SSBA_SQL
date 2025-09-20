@@ -98,18 +98,12 @@ class MatrixManager:
             return False
 
 
-    def get_audit_logs(self) -> pd.DataFrame:
-        return self._get_df("log_auditoria")
-
-    def add_access_request(self, email: str, name: str, unit: str) -> bool:
+     def add_access_request(self, email: str, name: str, unit: str) -> bool:
         """Adiciona um novo pedido de acesso à aba de solicitações."""
-        from datetime import datetime
-        
-        # Primeiro, verifica se já existe uma solicitação pendente para este e-mail
         requests_df = self.get_pending_access_requests()
         if not requests_df[requests_df['email'].str.lower() == email.lower()].empty:
             logger.warning(f"Solicitação de acesso duplicada para {email}. Nenhuma ação tomada.")
-            return True # Retorna True para não mostrar erro ao usuário
+            return True
 
         logger.info(f"Registrando nova solicitação de acesso para {email} da unidade {unit}.")
         
@@ -130,7 +124,7 @@ class MatrixManager:
         return requests_df[requests_df['status'].str.lower() == 'pendente']
 
     def approve_access_request(self, email: str, role: str) -> bool:
-        """Aprova uma solicitação: adiciona o usuário e remove a solicitação."""
+        """Aprova uma solicitação: adiciona o usuário e atualiza o status da solicitação."""
         requests_df = self.get_pending_access_requests()
         request_info = requests_df[requests_df['email'].str.lower() == email.lower()]
 
@@ -141,17 +135,14 @@ class MatrixManager:
         user_data = request_info.iloc[0]
         new_user = [user_data['email'], user_data['nome'], role, user_data['unidade_solicitada']]
 
-        # 1. Adiciona o usuário à lista de usuários autorizados
         if not self.add_user(new_user):
             logger.error(f"Falha ao adicionar o usuário {email} após aprovação.")
             return False
 
-        # 2. Remove a solicitação da lista de pendentes (marcando como 'aprovada')
         try:
             worksheet = self.sheet_ops.spreadsheet.worksheet("solicitacoes_acesso")
             cell = worksheet.find(email, in_column=1)
             if cell:
-                # Atualiza o status na coluna 5 (status) para 'aprovado'
                 worksheet.update_cell(cell.row, 5, 'aprovado')
                 log_action("APPROVE_ACCESS_REQUEST", {"email": email, "assigned_role": role})
                 st.cache_data.clear()
@@ -160,3 +151,8 @@ class MatrixManager:
         except Exception as e:
             logger.error(f"Erro ao atualizar status da solicitação para {email}: {e}")
             return False
+
+    # --- Métodos de Auditoria ---
+
+    def get_audit_logs(self) -> pd.DataFrame:
+        return self._get_df("log_auditoria")
