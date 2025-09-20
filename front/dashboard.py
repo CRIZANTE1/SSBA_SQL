@@ -4,6 +4,7 @@ from datetime import date
 from auth.auth_utils import check_permission
 from operations.incident_manager import get_incident_manager, IncidentManager
 from operations.audit_logger import log_action
+from gdrive.matrix_manager import get_matrix_manager
 
 def convert_drive_url_to_displayable(url: str) -> str | None:
     """
@@ -29,11 +30,6 @@ def convert_drive_url_to_displayable(url: str) -> str | None:
         # Se a extração do ID falhar
         return None
         
-# front/dashboard.py
-
-# Adicione esta importação no início do arquivo
-from gdrive.matrix_manager import get_matrix_manager
-
 @st.dialog("Análise de Abrangência do Incidente")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
@@ -119,7 +115,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
             # Define qual nome de unidade será salvo
             if is_admin:
                 unit_to_save = target_unit_name
-                if not unit_to_save:
+                if not unit_to_save or not unit_to_save.strip():
                     st.error("Administrador: Por favor, selecione ou digite o nome da Unidade Operacional.")
                     return
             else:
@@ -137,7 +133,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                 for action_id, desc in pertinent_actions.items():
                     new_id = incident_manager.add_abrangencia_action(
                         id_acao_bloqueio=action_id,
-                        unidade_operacional=unit_to_save,  
+                        unidade_operacional=unit_to_save.strip(),
                         responsavel_email=responsavel_email,
                         co_responsavel_email=co_responsavel_email,
                         prazo_inicial=prazo_inicial,
@@ -191,22 +187,15 @@ def display_incident_list(incident_manager: IncidentManager):
         col = cols[i % 3]
         with col.container(border=True):
             
-            # <<< MUDANÇA IMPORTANTE E CORREÇÃO APLICADA AQUI >>>
-            
-            # 1. Pega a URL da foto. O método .get() é seguro e retorna None se a coluna não existir.
             foto_url = incident.get('foto_url')
 
-            # 2. Verifica se a URL é uma string válida e não está vazia. pd.notna verifica contra None e NaN.
             if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
                 display_url = convert_drive_url_to_displayable(foto_url)
-                # Adiciona uma verificação final para o caso de a conversão falhar
                 if display_url:
                     st.image(display_url, use_container_width=True)
                 else:
-                    # Se a URL for inválida, mostra um placeholder ou nada
                     st.caption("Imagem não disponível ou URL inválida")
             else:
-                # Caso não haja foto, podemos exibir o número do alerta para preencher o espaço
                 st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
                 st.caption("Sem imagem anexada")
 
