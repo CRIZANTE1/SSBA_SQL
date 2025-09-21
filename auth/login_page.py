@@ -5,19 +5,45 @@ from operations.audit_logger import log_action
 
 def show_login_page():
     """
-    Mostra a página de login com opções para Google e Azure se o usuário não estiver logado.
-    Retorna True se o usuário estiver logado, False caso contrário.
+    Mostra a página de login com botões menores e centralizados.
     """
     if not is_user_logged_in():
         st.title("Sistema de Gestão de Incidentes")
-        st.markdown("Por favor, faça login com uma das contas abaixo para continuar.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.button("Fazer Login com Google", type="primary", on_click=st.login, use_container_width=True)
-        with col2:
-            get_login_button() # Esta função do azure_auth já cria o botão
+        st.markdown("---")
+        st.subheader("Por favor, faça login para continuar")
+        st.write("")
+
+        # CSS para esconder o IFrame do Google que aparece no topo após o clique
+        st.markdown("""
+        <style>
+            iframe[title="st.login()"] {
+                display: none;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Lógica para acionar o login do Google
+        if 'google_login_triggered' not in st.session_state:
+            st.session_state.google_login_triggered = False
+
+        if st.session_state.get('google_login_triggered', False):
+            st.login()
+            st.session_state.google_login_triggered = False
+
+        # --- Layout para botões menores ---
+        # Criamos colunas principais para centralizar o conteúdo
+        main_col1, main_col2, main_col3 = st.columns([1, 1, 1])
+
+        with main_col2: # Usamos a coluna do meio para o conteúdo
+            # Botão Google
+            if st.button("Entrar com Google", use_container_width=True, type="primary"):
+                st.session_state.google_login_triggered = True
+
+            st.markdown("<p style='text-align: center; margin: 10px 0;'>ou</p>", unsafe_allow_html=True)
             
+            # Botão Azure
+            get_login_button()
+
         return False
     return True
 
@@ -34,20 +60,19 @@ def show_logout_button():
             if user_email_to_log:
                 log_action("USER_LOGOUT", {"message": f"Usuário '{user_email_to_log}' deslogado."})
             
-            # Limpa todas as chaves de sessão relacionadas ao login
             keys_to_clear = [
                 'is_logged_in', 'user_info_custom', 'authenticated_user_email', 
-                'user_info', 'role', 'unit_name', 'access_status', 'login_logged'
+                'user_info', 'role', 'unit_name', 'access_status', 'login_logged',
+                'google_login_triggered'
             ]
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
             
-            # Chama o logout nativo do Google, se aplicável
             if hasattr(st, 'user') and st.user.is_logged_in:
                 st.logout()
             else:
-                st.rerun() # Força o rerun para limpar a tela
+                st.rerun()
 
 
 
