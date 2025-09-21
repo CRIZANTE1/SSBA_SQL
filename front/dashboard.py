@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
@@ -46,6 +47,12 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.subheader("Selecione as ações aplicáveis e defina os responsáveis")
     st.info("Ative uma ação para habilitar os campos e incluí-la no plano de ação.")
 
+    # <<< ESTA É A CORREÇÃO CRÍTICA >>>
+    # Criamos uma função vazia. O simples ato de ter um callback no on_change
+    # é suficiente para que o st.dialog se atualize corretamente sem um rerun completo.
+    def force_fragment_rerun():
+        pass
+
     is_admin = st.session_state.get('unit_name') == 'Global'
     if is_admin:
         matrix_manager = get_matrix_manager()
@@ -57,17 +64,15 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     
     st.markdown("---")
 
-    # --- PARTE 1: TOGGLES (com on_change para forçar o rerun) ---
     for _, action in blocking_actions.iterrows():
         st.toggle(
             action['descricao_acao'],
             key=f"toggle_{action['id']}",
-            on_change=st.rerun # <<< ESTA É A CORREÇÃO CRÍTICA
+            on_change=force_fragment_rerun 
         )
     
     st.divider()
 
-    # --- PARTE 2: INPUTS DENTRO DO FORMULÁRIO ---
     with st.form("abrangencia_form_data"):
         st.markdown("**Preencha os dados para as ações ativadas acima:**")
         
@@ -111,7 +116,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                 if not responsavel:
                     st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável preenchido.")
                     return
-                
                 actions_to_save.append({
                     "id_acao_bloqueio": action_id, "descricao": action['descricao_acao'],
                     "unidade_operacional": unit_to_save, "responsavel_email": responsavel,
@@ -136,10 +140,12 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                     log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": action_data['descricao'], "target_unit": unit_to_save})
         
         st.success(f"{saved_count} ação(ões) salvas com sucesso!")
-        st.balloons()
+        #st.balloons()
         import time
         time.sleep(2)
         st.rerun()
+
+# --- O RESTANTE DO ARQUIVO PERMANECE IGUAL ---
 
 def render_incident_card(incident, col, incident_manager, is_pending):
     with col.container(border=True):
@@ -169,14 +175,14 @@ def display_incident_list(incident_manager: IncidentManager):
         st.subheader("Alertas com Abrangência Pendente no Sistema")
         all_active_units = matrix_manager.get_all_units()
         if not all_active_units:
-            st.warning("Não há unidades operacionais cadastradas no sistema. A visão de pendências globais não pode ser calculada.")
+            st.warning("Não há unidades operacionais cadastradas no sistema.")
             st.info("Cadastre usuários e associe-os a unidades no painel de Administração.")
             return
         incidents_to_show_df = incident_manager.get_globally_pending_incidents(all_active_units)
         if incidents_to_show_df.empty:
             st.success("🎉 Todos os alertas foram analisados por todas as unidades operacionais ativas!")
         else:
-            st.info(f"Exibindo **{len(incidents_to_show_df)}** alerta(s) que ainda possuem pendências em ao menos uma UO.")
+            st.info(f"Exibindo **{len(incidents_to_show_df)}** alerta(s) com pendências.")
             cols = st.columns(3)
             for i, (_, incident) in enumerate(incidents_to_show_df.iterrows()):
                 col = cols[i % 3]
