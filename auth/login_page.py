@@ -1,5 +1,3 @@
-# auth/login_page.py
-
 import streamlit as st
 from .auth_utils import get_user_display_name, get_user_email, is_user_logged_in
 from .azure_auth import get_login_url
@@ -146,6 +144,7 @@ def show_logout_button():
                 st.logout()
             else:
                 st.rerun()
+
 
 
 
