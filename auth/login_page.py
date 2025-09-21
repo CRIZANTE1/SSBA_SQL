@@ -1,16 +1,19 @@
 
+
 import streamlit as st
 from .auth_utils import get_user_display_name, get_user_email, is_user_logged_in
 from .azure_auth import get_login_url
 from operations.audit_logger import log_action
+from streamlit_javascript import st_javascript 
 
 # --- URLs dos Logos ---
 GOOGLE_LOGO_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/2048px-Google_%22G%22_logo.svg.png"
 MICROSOFT_LOGO_URL = "https://cdn-icons-png.flaticon.com/512/732/732221.png"
 
+
 def show_login_page():
     """
-    Mostra a página de login com um design minimalista usando logos.
+    Mostra a página de login com um design minimalista usando logos e botões customizados.
     """
     if not is_user_logged_in():
         st.title("Sistema de Gestão de Incidentes")
@@ -25,28 +28,35 @@ def show_login_page():
             }}
             /* Estilo base para os containers de botão */
             .login-container {{
-                padding: 10px 15px;
+                padding: 12px;
                 border: 1px solid #dcdcdc;
-                border-radius: 8px;
+                border-radius: 10px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 text-decoration: none;
-                color: #333 !important;
-                margin-bottom: 10px;
+                color: #4f4f4f !important; /* Cor do texto */
+                margin-bottom: 12px;
+                cursor: pointer;
                 transition: background-color 0.2s, box-shadow 0.2s;
             }}
             .login-container:hover {{
                 background-color: #f5f5f5;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             }}
             .login-container img {{
-                width: 28px;
-                margin-right: 15px;
+                width: 25px;
+                margin-right: 12px;
             }}
             .login-container span {{
                 font-weight: 500;
                 font-size: 16px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            }}
+            /* Garante que o link ocupe todo o container */
+            .login-container a {{
+                text-decoration: none;
+                display: contents; /* Faz o link se comportar como o conteúdo dentro dele */
             }}
         </style>
         """, unsafe_allow_html=True)
@@ -55,33 +65,95 @@ def show_login_page():
         _, col, _ = st.columns([1, 1.5, 1])
 
         with col:
-            st.markdown("<h3 style='text-align: center; margin-bottom: 20px;'>Entrar no Sistema</h3>", unsafe_allow_html=True)
+            st.markdown("<h3 style='text-align: center; margin-bottom: 25px;'>Entrar no Sistema</h3>", unsafe_allow_html=True)
 
             # --- Botão Google ---
-            # O st.login() não tem URL, então usamos um truque: um botão que o chama.
-            # E um container para estilizar, mas que não é clicável.
-            if st.button("Fazer Login com Google", key="google_login_main_button", use_container_width=True):
-                 st.login()
+            # O st.login() não tem URL, então precisamos de um truque com um botão invisível
+            if 'google_button_clicked' not in st.session_state:
+                st.session_state.google_button_clicked = False
 
-            st.markdown("<p style='text-align: center; margin: 10px 0;'>ou</p>", unsafe_allow_html=True)
+            def on_google_button_click():
+                st.session_state.google_button_clicked = True
             
+            # Botão invisível para acionar o login
+            st.button("Trigger Google Login", on_click=on_google_button_click, key="trigger_google", type="primary", use_container_width=True)
+
+            # O st.login() será chamado se o botão for clicado
+            if st.session_state.google_button_clicked:
+                st.login()
+                st.session_state.google_button_clicked = False # Reseta o estado
+
             # --- Botão Azure ---
             azure_login_url = get_login_url()
             if azure_login_url:
-                # O st.link_button funciona perfeitamente para o Azure
-                st.link_button("Fazer Login com Microsoft", azure_login_url, use_container_width=True)
+                st.markdown(
+                    f'''
+                    <a href="{azure_login_url}" target="_self">
+                        <div class="login-container">
+                            <img src="{MICROSOFT_LOGO_URL}">
+                            <span>Entrar com Microsoft</span>
+                        </div>
+                    </a>
+                    ''',
+                    unsafe_allow_html=True
+                )
             else:
                 st.warning("O login com Microsoft Azure não está configurado.")
 
+        # CSS para esconder o nosso botão "gatilho"
+        st.markdown("""
+            <style>
+                button[data-testid="stButton"][key="trigger_google"] {
+                    /* Cria o nosso botão visual com HTML */
+                    background: none!important;
+                    border: none;
+                    padding: 0!important;
+                    color: #000;
+                    text-decoration: none;
+                    cursor: pointer;
+                    display: block;
+                    width: 100%;
+                    height: auto;
+                }
+                button[data-testid="stButton"][key="trigger_google"] > div {
+                     /* O conteúdo HTML do nosso botão */
+                    padding: 12px;
+                    border: 1px solid #dcdcdc;
+                    border-radius: 10px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    text-decoration: none;
+                    color: #4f4f4f !important;
+                    margin-bottom: 12px;
+                    transition: background-color 0.2s, box-shadow 0.2s;
+                }
+                button[data-testid="stButton"][key="trigger_google"]:hover > div {
+                    background-color: #f5f5f5;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                }
+                button[data-testid="stButton"][key="trigger_google"]::before {
+                    /* O conteúdo HTML do nosso botão */
+                    content: 'Entrar com Google';
+                    font-weight: 500;
+                    font-size: 16px;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                }
+                 button[data-testid="stButton"][key="trigger_google"] p {
+                    display: none; /* Esconde o texto original do botão Streamlit */
+                }
+            </style>
+        """, unsafe_allow_html=True)
+
         return False
     return True
+
 
 def show_user_header():
     st.sidebar.write(f"Bem-vindo(a),")
     st.sidebar.write(f"**{get_user_display_name()}**")
 
 def show_logout_button():
-    """Mostra o botão de logout e limpa todas as variáveis de sessão relevantes."""
     with st.sidebar:
         st.divider()
         if st.button("Sair do Sistema", width='stretch'):
@@ -91,7 +163,8 @@ def show_logout_button():
             
             keys_to_clear = [
                 'is_logged_in', 'user_info_custom', 'authenticated_user_email', 
-                'user_info', 'role', 'unit_name', 'access_status', 'login_logged'
+                'user_info', 'role', 'unit_name', 'access_status', 'login_logged',
+                'google_button_clicked' # Limpa o estado do botão
             ]
             for key in keys_to_clear:
                 if key in st.session_state:
