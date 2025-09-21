@@ -66,8 +66,8 @@ def show_login_page():
                     speed=1,
                     loop=True,
                     quality="high",
-                    height=400,
-                    width=600,
+                    height=600,
+                    width=1000,
                     key="login_lottie"
                 )
 
@@ -99,6 +99,7 @@ def show_logout_button():
                 st.logout()
             else:
                 st.rerun()
+
 
 
 
