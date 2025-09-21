@@ -21,7 +21,7 @@ def convert_drive_url_to_displayable(url: str) -> str | None:
     except IndexError:
         return None
 
-@st.dialog("Análise de Abrangência do Incidente")
+@st.dialog("Análise de Abrangência do Incidente", width="large")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
     Renderiza um diálogo modal com um formulário dinâmico, permitindo a atribuição
@@ -47,9 +47,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.subheader("Selecione as ações aplicáveis e defina os responsáveis")
     st.info("Ative uma ação para habilitar os campos e incluí-la no plano de ação.")
 
-    # <<< ESTA É A CORREÇÃO CRÍTICA >>>
-    # Criamos uma função vazia. O simples ato de ter um callback no on_change
-    # é suficiente para que o st.dialog se atualize corretamente sem um rerun completo.
     def force_fragment_rerun():
         pass
 
@@ -68,7 +65,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         st.toggle(
             action['descricao_acao'],
             key=f"toggle_{action['id']}",
-            on_change=force_fragment_rerun 
+            on_change=force_fragment_rerun
         )
     
     st.divider()
