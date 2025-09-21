@@ -1,4 +1,3 @@
-# front/plano_de_acao.py
 
 import streamlit as st
 import pandas as pd
@@ -36,19 +35,19 @@ def load_action_plan_data():
         merged_df['id_incidente'] = "N/A"
 
     if not incidents_df.empty:
+        # <<< A CORREÇÃO ESTÁ NA LINHA DE RENAME ABAIXO >>>
         final_df = pd.merge(
             merged_df,
             incidents_df[['id', 'evento_resumo']],
             left_on='id_incidente', right_on='id', how='left', suffixes=('_action', '_incident')
-        ).rename(columns={'id_action': 'id'})
+        ).rename(columns={'id_plan': 'id'}) # CORRIGIDO: Renomeia 'id_plan' (o ID único da ação) para 'id'
     else:
-        final_df = merged_df
+        final_df = merged_df.rename(columns={'id_plan': 'id'}) # Garante o rename mesmo se não houver incidentes
         final_df['evento_resumo'] = "Incidente original não encontrado"
 
     final_df['descricao_acao'].fillna('Descrição da ação não encontrada', inplace=True)
     final_df['evento_resumo'].fillna('Incidente original não encontrado', inplace=True)
     
-    # Garante que a coluna de evidência exista, mesmo que vazia
     if 'url_evidencia' not in final_df.columns:
         final_df['url_evidencia'] = ''
     final_df['url_evidencia'].fillna('', inplace=True)
@@ -81,10 +80,8 @@ def edit_action_dialog(item_data):
         new_co_responsavel = st.text_input("E-mail do Co-Responsável (Opcional)", value=item_data.get('co_responsavel_email', ''))
         
         st.divider()
-        # <<< NOVO CAMPO DE UPLOAD DE EVIDÊNCIA >>>
         uploaded_evidence = st.file_uploader("Anexar Foto de Evidência (Opcional)", type=['jpg', 'png', 'jpeg'])
         
-        # Mostra a evidência atual, se existir
         if item_data.get('url_evidencia'):
             st.write("Evidência atual:")
             thumb_url = convert_drive_url_to_displayable(item_data['url_evidencia'])
@@ -102,7 +99,6 @@ def edit_action_dialog(item_data):
                     "responsavel_email": new_responsavel,
                     "co_responsavel_email": new_co_responsavel
                 }
-
                 if uploaded_evidence:
                     api_manager = GoogleApiManager()
                     safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
@@ -113,8 +109,7 @@ def edit_action_dialog(item_data):
                         st.toast("Evidência enviada com sucesso!")
                     else:
                         st.error("Falha ao enviar a foto de evidência. As outras alterações não foram salvas.")
-                        return # Impede o salvamento se o upload falhar
-
+                        return
                 if new_status == "Concluído" and item_data.get('status') != 'Concluído':
                     updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
                 
@@ -126,7 +121,6 @@ def edit_action_dialog(item_data):
                     st.rerun()
                 else:
                     st.error("Falha ao atualizar a ação.")
-
 
 def show_plano_acao_page():
     st.title("📋 Plano de Ação de Abrangência")
@@ -174,7 +168,6 @@ def show_plano_acao_page():
     sorted_df = filtered_df.sort_values(by='status_order')
 
     for _, row in sorted_df.iterrows():
-        # <<< LÓGICA DE VERIFICAÇÃO DE PRAZO >>>
         is_overdue = False
         status = row['status']
         if status.lower() in ['pendente', 'em andamento']:
@@ -183,9 +176,8 @@ def show_plano_acao_page():
                 if prazo_dt < date.today():
                     is_overdue = True
             except (ValueError, TypeError):
-                pass # Se o prazo não for uma data válida, não considera atrasado
+                pass
 
-        # Define a cor do border com base no status de atraso
         container_border_color = "#FF4B4B" if is_overdue else True
         
         with st.container(border=container_border_color):
@@ -196,7 +188,6 @@ def show_plano_acao_page():
                 st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
                 st.caption(f"**UO:** {row['unidade_operacional']} | **Incidente:** {row['evento_resumo']}")
                 
-                # Exibe link para a evidência se existir
                 if row.get('url_evidencia'):
                     st.markdown(f" bukti [Ver Evidência]({row['url_evidencia']})", unsafe_allow_html=True)
 
