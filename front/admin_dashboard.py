@@ -1,121 +1,163 @@
+
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
-from operations.incident_manager import get_incident_manager
-from gdrive.matrix_manager import get_matrix_manager
+from datetime import datetime, date, timedelta
+
+
+PRAZO_ANALISE_DIAS = 30
 
 @st.cache_data(ttl=300)
-def load_admin_dashboard_data():
+def load_comprehensive_admin_data():
     """
-    Carrega e prepara todos os dados necessários para o dashboard do administrador.
+    Carrega e processa todos os dados, calculando as duas categorias de pendências:
+    1. Análises não iniciadas e vencidas.
+    2. Ações de planos de ação com prazo vencido.
     """
+    from operations.incident_manager import get_incident_manager
+    from gdrive.matrix_manager import get_matrix_manager
+
     incident_manager = get_incident_manager()
     matrix_manager = get_matrix_manager()
 
-    all_actions_df = incident_manager.get_all_action_plans()
     all_incidents_df = incident_manager.get_all_incidents()
+    all_actions_df = incident_manager.get_all_action_plans()
     all_units = matrix_manager.get_all_units()
     
-    # Une as ações com as descrições para ter mais contexto
+    # Adiciona a descrição da ação para enriquecer os dados
     blocking_actions_df = incident_manager.get_all_blocking_actions()
     if not all_actions_df.empty and not blocking_actions_df.empty:
-        action_plan_with_desc = pd.merge(
+        all_actions_df = pd.merge(
             all_actions_df,
             blocking_actions_df[['id', 'descricao_acao']],
-            left_on='id_acao_bloqueio',
-            right_on='id',
-            how='left'
+            left_on='id_acao_bloqueio', right_on='id', how='left'
         )
     else:
-        action_plan_with_desc = all_actions_df
-        if 'descricao_acao' not in action_plan_with_desc.columns:
-            action_plan_with_desc['descricao_acao'] = "Descrição não disponível"
-    
-    action_plan_with_desc['descricao_acao'].fillna("Descrição não disponível", inplace=True)
+        all_actions_df['descricao_acao'] = "N/A"
+    all_actions_df['descricao_acao'] = all_actions_df['descricao_acao'].fillna("N/A")
 
-    return action_plan_with_desc, all_incidents_df, all_units
+    # --- CÁLCULO DE PENDÊNCIAS ---
+    uninitiated_analyses_list = []
+    overdue_actions_df = pd.DataFrame()
+
+    if not all_incidents_df.empty and all_units:
+        all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], format="%d/%m/%Y", errors='coerce')
+        deadline_for_analysis = date.today() - timedelta(days=PRAZO_ANALISE_DIAS)
+        
+        # 1. Encontra Análises Não Iniciadas e Atrasadas
+        units_who_analyzed_by_incident = {}
+        if not all_actions_df.empty:
+            # Primeiro, precisamos do id_incidente no df de ações
+            actions_with_incident_id = pd.merge(
+                all_actions_df, 
+                blocking_actions_df[['id', 'id_incidente']], 
+                left_on='id_acao_bloqueio', right_on='id', how='left'
+            )
+            # Agrupa para saber quais UOs analisaram cada incidente
+            grouped = actions_with_incident_id.groupby('id_incidente')['unidade_operacional'].unique()
+            units_who_analyzed_by_incident = {index: set(values) for index, values in grouped.items()}
+
+        set_all_units = set(all_units)
+        
+        for _, incident in all_incidents_df.iterrows():
+            incident_date = incident['data_evento_dt']
+            if pd.notna(incident_date) and incident_date.date() < deadline_for_analysis:
+                units_that_analyzed = units_who_analyzed_by_incident.get(incident['id'], set())
+                pending_units = set_all_units - units_that_analyzed
+                if pending_units:
+                    uninitiated_analyses_list.append({
+                        "Incidente": incident['evento_resumo'],
+                        "Data do Incidente": incident['data_evento'],
+                        "UOs Pendentes": ", ".join(sorted(list(pending_units))),
+                        "count": len(pending_units),
+                        "unidades": list(pending_units)
+                    })
+
+        # 2. Encontra Ações de Execução com Prazo Vencido
+        if not all_actions_df.empty:
+            pending_execution = all_actions_df[~all_actions_df['status'].str.lower().isin(['concluído', 'cancelado'])].copy()
+            if not pending_execution.empty:
+                pending_execution['prazo_dt'] = pd.to_datetime(pending_execution['prazo_inicial'], format="%d/%m/%Y", errors='coerce')
+                overdue_actions_df = pending_execution.dropna(subset=['prazo_dt'])[pending_execution['prazo_dt'].dt.date < date.today()]
+
+    uninitiated_analyses_df = pd.DataFrame(uninitiated_analyses_list)
+    return uninitiated_analyses_df, overdue_actions_df, all_incidents_df, all_units
 
 def display_admin_summary_dashboard():
-    """
-    Calcula e exibe o dashboard de resumo executivo para o Administrador Global.
-    """
     st.header("Dashboard de Resumo Executivo Global")
-
-    action_plan_df, incidents_df, units_list = load_admin_dashboard_data()
+    
+    uninitiated_df, overdue_df, incidents_df, units_list = load_comprehensive_admin_data()
 
     if not units_list:
         st.info("Nenhuma unidade operacional encontrada. Cadastre usuários e associe-os a unidades.")
         return
 
     # --- 1. Métricas Gerais ---
-    total_units = len(units_list)
-    total_incidents = len(incidents_df)
-    total_actions = len(action_plan_df)
-
     col1, col2, col3 = st.columns(3)
-    col1.metric("Unidades Operacionais", total_units)
-    col2.metric("Total de Incidentes Globais", total_incidents)
-    col3.metric("Total de Ações de Abrangência", total_actions)
+    col1.metric("Unidades Operacionais", len(units_list))
+    col2.metric("Total de Incidentes Globais", len(incidents_df))
+    col3.metric("Análises Atrasadas (Não Iniciadas)", len(uninitiated_df))
     st.divider()
 
-    # --- 2. Cálculo de Pendências (Ações com Prazo Vencido) ---
-    if action_plan_df.empty:
-        st.success("🎉 Nenhuma ação de abrangência registrada no sistema.")
-        return
-
-    # Filtra apenas as ações que ainda não foram concluídas ou canceladas
-    pending_actions = action_plan_df[~action_plan_df['status'].str.lower().isin(['concluído', 'cancelado'])].copy()
-    
-    if pending_actions.empty:
-        st.success("🎉 Parabéns! Todas as ações de abrangência foram concluídas.")
-        return
-
-    # Converte a coluna de prazo para datetime e encontra as vencidas
-    pending_actions['prazo_dt'] = pd.to_datetime(pending_actions['prazo_inicial'], format="%d/%m/%Y", errors='coerce')
-    overdue_actions = pending_actions.dropna(subset=['prazo_dt'])[pending_actions['prazo_dt'].dt.date < date.today()]
-
-    total_pendencies = len(overdue_actions)
-    if total_pendencies == 0:
-        st.success("✅ Ótimo trabalho! Nenhuma ação de abrangência com prazo vencido.")
-        return
-        
-    st.error(f"Atenção! Existem {total_pendencies} ações de abrangência com o prazo vencido no sistema.", icon="⚠️")
-    st.divider()
-
-    # --- 3. Gráfico de Barras de Pendências por Unidade ---
-    st.subheader("Gráfico de Ações Vencidas por Unidade Operacional")
-    
-    overdue_counts_by_unit = overdue_actions.groupby('unidade_operacional').size()
-    
-    if overdue_counts_by_unit.empty:
-        st.info("Nenhuma pendência encontrada para gerar o gráfico.")
-        return
-
-    st.bar_chart(overdue_counts_by_unit)
-    
-    with st.expander("Ver tabela de dados de pendências"):
-        st.dataframe(overdue_counts_by_unit.reset_index(name='Ações Vencidas'), width='stretch', hide_index=True)
-
-    # --- 4. Detalhamento da Unidade Mais Crítica ---
-    most_critical_unit = overdue_counts_by_unit.idxmax()
-    st.subheader(f"🔍 Detalhes da Unidade Mais Crítica: {most_critical_unit}")
-
-    critical_unit_details = overdue_actions[overdue_actions['unidade_operacional'] == most_critical_unit]
-
-    if critical_unit_details.empty:
-        st.info(f"Não foi possível carregar detalhes para a unidade '{most_critical_unit}'.")
+    # --- 2. Seção de Análises de Abrangência Atrasadas ---
+    st.subheader(f"🚨 Análises de Abrangência Atrasadas (Prazo > {PRAZO_ANALISE_DIAS} dias)")
+    if uninitiated_df.empty:
+        st.success("✅ Todas as unidades estão em dia com o início das análises de abrangência.")
     else:
-        st.write(f"Abaixo estão as {len(critical_unit_details)} ações com prazo vencido para esta unidade:")
-        
-        display_df = critical_unit_details[['descricao_acao', 'responsavel_email', 'prazo_inicial', 'status']].copy()
-        
+        st.error(f"Existem {len(uninitiated_df)} incidentes com análises não iniciadas por uma ou mais UOs.", icon="🚨")
         st.dataframe(
-            display_df.rename(columns={
-                'descricao_acao': 'Descrição da Ação',
-                'responsavel_email': 'Responsável',
-                'prazo_inicial': 'Prazo Vencido',
-                'status': 'Status Atual'
-            }),
-            width='stretch',
-            hide_index=True
+            uninitiated_df[['Incidente', 'Data do Incidente', 'UOs Pendentes']],
+            width='stretch', hide_index=True
         )
+    st.divider()
+
+    # --- 3. Seção de Ações de Execução Vencidas ---
+    st.subheader("⚠️ Ações de Abrangência com Prazo de Execução Vencido")
+    if overdue_df.empty:
+        st.success("✅ Nenhuma ação de execução com prazo vencido.")
+    else:
+        st.warning(f"Existem {len(overdue_df)} ações individuais com prazo de execução vencido.", icon="⚠️")
+        st.dataframe(
+            overdue_df[['unidade_operacional', 'descricao_acao', 'responsavel_email', 'prazo_inicial']].rename(columns={
+                'unidade_operacional': 'UO', 'descricao_acao': 'Ação',
+                'responsavel_email': 'Responsável', 'prazo_inicial': 'Prazo Vencido'
+            }),
+            width='stretch', hide_index=True
+        )
+    st.divider()
+    
+    # --- 4. Gráfico Consolidado de Pendências por Unidade ---
+    st.subheader("Gráfico Consolidado de Pendências por Unidade")
+    
+    # Contagem de análises não iniciadas por UO
+    uninitiated_counts = uninitiated_df.explode('unidades').groupby('unidades').size().rename("Análises Atrasadas")
+    
+    # Contagem de ações de execução vencidas por UO
+    overdue_action_counts = overdue_df.groupby('unidade_operacional').size().rename("Ações Vencidas")
+    
+    # Consolida os dois tipos de pendência
+    df_consolidated = pd.concat([uninitiated_counts, overdue_action_counts], axis=1).fillna(0).astype(int)
+    
+    if df_consolidated.empty or df_consolidated.sum().sum() == 0:
+        st.info("Nenhuma pendência encontrada para gerar o gráfico.")
+    else:
+        df_consolidated = df_consolidated[df_consolidated.sum(axis=1) > 0]
+        st.bar_chart(df_consolidated)
+        
+        # --- 5. Detalhamento da Unidade Mais Crítica ---
+        df_consolidated['Total'] = df_consolidated.sum(axis=1)
+        most_critical_unit = df_consolidated['Total'].idxmax()
+        
+        with st.expander(f"🔍 Detalhes da Unidade Mais Crítica: {most_critical_unit}"):
+            st.write(f"**Análises Não Iniciadas Atrasadas ({df_consolidated.loc[most_critical_unit, 'Análises Atrasadas']}):**")
+            critical_uninitiated = uninitiated_df[uninitiated_df['unidades'].apply(lambda x: most_critical_unit in x)]
+            if not critical_uninitiated.empty:
+                st.table(critical_uninitiated[['Incidente', 'Data do Incidente']])
+            else:
+                st.write("Nenhuma.")
+
+            st.write(f"**Ações com Execução Vencida ({df_consolidated.loc[most_critical_unit, 'Ações Vencidas']}):**")
+            critical_overdue = overdue_df[overdue_df['unidade_operacional'] == most_critical_unit]
+            if not critical_overdue.empty:
+                st.table(critical_overdue[['descricao_acao', 'responsavel_email', 'prazo_inicial']])
+            else:
+                st.write("Nenhuma.")
