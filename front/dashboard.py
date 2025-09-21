@@ -1,171 +1,239 @@
-
-# front/plano_de_acao.py
+# front/dashboard.py
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
-from auth.auth_utils import check_permission, get_user_role
-from operations.incident_manager import get_incident_manager
+from datetime import date, datetime
+from auth.auth_utils import check_permission
+from operations.incident_manager import get_incident_manager, IncidentManager
 from operations.audit_logger import log_action
-from gdrive.google_api_manager import GoogleApiManager
-from gdrive.config import ACTION_PLAN_EVIDENCE_FOLDER_ID
-from front.dashboard import convert_drive_url_to_displayable
+from gdrive.matrix_manager import get_matrix_manager
 
-@st.cache_data(ttl=120)
-def load_action_plan_data():
-    # ... (esta função não precisa de alterações)
-    incident_manager = get_incident_manager()
-    action_plan_df = incident_manager.get_all_action_plans()
-    blocking_actions_df = incident_manager.get_all_blocking_actions()
-    incidents_df = incident_manager.get_all_incidents()
-    if action_plan_df.empty: return pd.DataFrame()
-    if not blocking_actions_df.empty:
-        merged_df = pd.merge(action_plan_df, blocking_actions_df[['id', 'descricao_acao', 'id_incidente']], left_on='id_acao_bloqueio', right_on='id', how='left', suffixes=('_plan', '_block'))
-    else:
-        merged_df = action_plan_df; merged_df['descricao_acao'] = "N/A"; merged_df['id_incidente'] = "N/A"
-    if not incidents_df.empty:
-        final_df = pd.merge(merged_df, incidents_df[['id', 'evento_resumo']], left_on='id_incidente', right_on='id', how='left', suffixes=('_action', '_incident')).rename(columns={'id_action': 'id'})
-    else:
-        final_df = merged_df; final_df['evento_resumo'] = "Incidente original não encontrado"
-    final_df['descricao_acao'].fillna('Descrição da ação não encontrada', inplace=True)
-    final_df['evento_resumo'].fillna('Incidente original não encontrado', inplace=True)
-    if 'url_evidencia' not in final_df.columns: final_df['url_evidencia'] = ''
-    final_df['url_evidencia'].fillna('', inplace=True)
-    return final_df
+def convert_drive_url_to_displayable(url: str) -> str | None:
+    if not isinstance(url, str) or 'drive.google.com' not in url:
+        return None
+    try:
+        if '/d/' in url:
+            file_id = url.split('/d/')[1].split('/')[0]
+        elif 'id=' in url:
+            file_id = url.split('id=')[1].split('&')[0]
+        else:
+            return None
+        return f'https://drive.google.com/thumbnail?id={file_id}'
+    except IndexError:
+        return None
 
-@st.dialog("Editar Ação de Abrangência")
-def edit_action_dialog(item_data):
-    st.subheader("Item: " + item_data.get('descricao_acao', ''))
-    st.caption("Incidente Original: " + item_data.get('evento_resumo', ''))
+@st.dialog("Análise de Abrangência do Incidente")
+def abrangencia_dialog(incident, incident_manager: IncidentManager):
+    """
+    Renderiza um diálogo modal com um formulário dinâmico, permitindo a atribuição
+    de responsáveis e prazos individuais para cada ação selecionada.
+    """
+    st.subheader(incident.get('evento_resumo'))
+    st.caption(f"Alerta: {incident.get('numero_alerta')} | Data: {pd.to_datetime(incident.get('data_evento'), dayfirst=True).strftime('%d/%m/%Y')}")
+    st.divider()
+
+    st.markdown(f"**O que aconteceu?**")
+    st.write(incident.get('o_que_aconteceu'))
+    st.markdown(f"**Por que aconteceu?**")
+    st.write(incident.get('por_que_aconteceu'))
+    st.divider()
+
+    blocking_actions = incident_manager.get_blocking_actions_by_incident(incident['id'])
     
-    with st.form("edit_action_form"):
-        # <<< MUDANÇA IMPORTANTE: Usamos 'key' em vez de 'value' >>>
-        status_options = ["Pendente", "Em Andamento", "Concluído", "Cancelado"]
-        try:
-            current_status_index = status_options.index(st.session_state.form_status)
-        except ValueError:
-            current_status_index = 0
-        
-        st.selectbox("Status", status_options, index=current_status_index, key="form_status")
-        st.date_input("Prazo para Implementação", key="form_prazo")
-        st.text_input("E-mail do Responsável", key="form_responsavel")
-        st.text_input("E-mail do Co-Responsável (Opcional)", key="form_co_responsavel")
-        
-        st.divider()
-        uploaded_evidence = st.file_uploader("Anexar Nova Foto de Evidência", type=['jpg', 'png', 'jpeg'])
-        
-        if item_data.get('url_evidencia'):
-            st.write("Evidência atual:")
-            thumb_url = convert_drive_url_to_displayable(item_data['url_evidencia'])
-            if thumb_url: st.image(thumb_url, width=200)
-            st.markdown(f"[Ver imagem completa]({item_data['url_evidencia']})")
+    if blocking_actions.empty:
+        st.success("Não há ações de bloqueio sugeridas para este incidente.")
+        if st.button("Fechar"):
+            st.rerun()
+        return
 
-        submitted = st.form_submit_button("Salvar Alterações")
+    st.subheader("Selecione as ações aplicáveis e defina os responsáveis")
+    st.info("Ative uma ação no seletor à esquerda para habilitar os campos e incluí-la no plano.")
+
+    with st.form("abrangencia_dialog_form_individual"):
+        # Lógica para Admin Global selecionar a UO (permanece a mesma)
+        is_admin = st.session_state.get('unit_name') == 'Global'
+        target_unit_name = None
+        if is_admin:
+            matrix_manager = get_matrix_manager()
+            all_units = matrix_manager.get_all_units()
+            options = ["-- Digitar nome da UO --"] + all_units
+            chosen_option = st.selectbox("Selecione a Unidade Operacional (UO) de destino", options=options)
+            if chosen_option == "-- Digitar nome da UO --":
+                target_unit_name = st.text_input("Digite o nome da UO", key="new_uo_input")
+            else:
+                target_unit_name = chosen_option
+        
+        st.markdown("---")
+
+        # Loop para renderizar o formulário dinâmico
+        for _, action in blocking_actions.iterrows():
+            action_id = action['id']
+            
+            col_toggle, col_resp, col_co_resp, col_prazo = st.columns([2, 1.5, 1.5, 1])
+
+            with col_toggle:
+                is_pertinent = st.toggle(action['descricao_acao'], key=f"toggle_{action_id}")
+            
+            with col_resp:
+                st.text_input(
+                    "Responsável", 
+                    value=st.session_state.get('user_info', {}).get('email', ''),
+                    key=f"resp_{action_id}",
+                    disabled=not is_pertinent,
+                    label_visibility="collapsed"
+                )
+            with col_co_resp:
+                st.text_input(
+                    "Co-responsável",
+                    placeholder="Co-responsável (Opcional)",
+                    key=f"co_resp_{action_id}",
+                    disabled=not is_pertinent,
+                    label_visibility="collapsed"
+                )
+            with col_prazo:
+                st.date_input(
+                    "Prazo",
+                    min_value=date.today(),
+                    key=f"prazo_{action_id}",
+                    disabled=not is_pertinent,
+                    label_visibility="collapsed"
+                )
+            st.divider()
+
+        submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
         if submitted:
-            with st.spinner("Salvando..."):
-                # <<< MUDANÇA IMPORTANTE: Lemos os valores do session_state >>>
-                updates = {
-                    "status": st.session_state.form_status,
-                    "prazo_inicial": st.session_state.form_prazo.strftime("%d/%m/%Y") if st.session_state.form_prazo else "",
-                    "responsavel_email": st.session_state.form_responsavel,
-                    "co_responsavel_email": st.session_state.form_co_responsavel
-                }
-                if uploaded_evidence:
-                    api_manager = GoogleApiManager()
-                    safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
-                    file_name = f"evidencia_acao_{safe_action_id}.{uploaded_evidence.name.split('.')[-1]}"
-                    evidence_url = api_manager.upload_file(ACTION_PLAN_EVIDENCE_FOLDER_ID, uploaded_evidence, file_name)
-                    if evidence_url:
-                        updates["url_evidencia"] = evidence_url
-                        st.toast("Evidência enviada com sucesso!")
-                    else:
-                        st.error("Falha ao enviar a foto de evidência. As outras alterações não foram salvas.")
-                        return
+            # Lógica de processamento pós-submissão
+            unit_to_save = target_unit_name if is_admin else st.session_state.unit_name
+            if is_admin and (not unit_to_save or not unit_to_save.strip()):
+                st.error("Administrador: Por favor, selecione ou digite o nome da Unidade Operacional.")
+                return
 
-                if updates["status"] == "Concluído" and item_data.get('status') != 'Concluído':
-                    updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
-                
-                incident_manager = get_incident_manager()
-                if incident_manager.update_abrangencia_action(item_data['id'], updates):
-                    st.success("Ação atualizada com sucesso!")
-                    # <<< MUDANÇA IMPORTANTE: Limpamos o estado do formulário >>>
-                    for key in ['item_to_edit', 'form_status', 'form_prazo', 'form_responsavel', 'form_co_responsavel']:
-                        if key in st.session_state: del st.session_state[key]
-                    st.rerun()
-                else:
-                    st.error("Falha ao atualizar a ação.")
+            actions_to_save = []
+            validation_passed = True
+            # Loop para coletar dados das ações selecionadas
+            for _, action in blocking_actions.iterrows():
+                action_id = action['id']
+                if st.session_state[f"toggle_{action_id}"]:
+                    responsavel = st.session_state[f"resp_{action_id}"]
+                    co_responsavel = st.session_state[f"co_resp_{action_id}"]
+                    prazo = st.session_state[f"prazo_{action_id}"]
+                    
+                    if not responsavel or not prazo:
+                        st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável ou Prazo preenchido.")
+                        validation_passed = False
+                        break
+                    
+                    actions_to_save.append({
+                        "id_acao_bloqueio": action_id,
+                        "descricao": action['descricao_acao'],
+                        "unidade_operacional": unit_to_save,
+                        "responsavel_email": responsavel,
+                        "co_responsavel_email": co_responsavel,
+                        "prazo_inicial": prazo
+                    })
 
-def show_plano_acao_page():
-    st.title("📋 Plano de Ação de Abrangência")
+            if not validation_passed:
+                return
+
+            if not actions_to_save:
+                st.warning("Nenhuma ação foi selecionada. Ative o seletor de uma ou mais ações para salvar.")
+                return
+
+            saved_count = 0
+            with st.spinner(f"Salvando {len(actions_to_save)} ação(ões) para a UO: {unit_to_save}..."):
+                for action_data in actions_to_save:
+                    new_id = incident_manager.add_abrangencia_action(
+                        id_acao_bloqueio=action_data['id_acao_bloqueio'],
+                        unidade_operacional=action_data['unidade_operacional'],
+                        responsavel_email=action_data['responsavel_email'],
+                        co_responsavel_email=action_data['co_responsavel_email'],
+                        prazo_inicial=action_data['prazo_inicial'],
+                        status="Pendente"
+                    )
+                    if new_id:
+                        saved_count += 1
+                        log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": action_data['descricao'], "target_unit": unit_to_save})
+            
+            st.success(f"{saved_count} ação(ões) salvas com sucesso!")
+            st.balloons()
+            import time
+            time.sleep(2)
+            st.rerun()
+
+def render_incident_card(incident, col, incident_manager, is_pending):
+    with col.container(border=True):
+        foto_url = incident.get('foto_url')
+        if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
+            display_url = convert_drive_url_to_displayable(foto_url)
+            if display_url:
+                st.image(display_url, width='stretch')
+            else:
+                st.caption("Imagem não disponível ou URL inválida")
+        else:
+            st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
+            st.caption("Sem imagem anexada")
+        st.subheader(incident.get('evento_resumo'))
+        st.write(incident.get('o_que_aconteceu'))
+        if is_pending:
+            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'):
+                abrangencia_dialog(incident, incident_manager)
+        else:
+            st.success("✔ Análise Registrada", icon="✅")
+
+def display_incident_list(incident_manager: IncidentManager):
+    st.title("Dashboard de Incidentes")
+    user_unit = st.session_state.get('unit_name', 'Global')
+    matrix_manager = get_matrix_manager()
+    if user_unit == 'Global':
+        st.subheader("Alertas com Abrangência Pendente no Sistema")
+        all_active_units = matrix_manager.get_all_units()
+        if not all_active_units:
+            st.warning("Não há unidades operacionais cadastradas no sistema. A visão de pendências globais não pode ser calculada.")
+            st.info("Cadastre usuários e associe-os a unidades no painel de Administração.")
+            return
+        incidents_to_show_df = incident_manager.get_globally_pending_incidents(all_active_units)
+        if incidents_to_show_df.empty:
+            st.success("🎉 Todos os alertas foram analisados por todas as unidades operacionais ativas!")
+        else:
+            st.info(f"Exibindo **{len(incidents_to_show_df)}** alerta(s) que ainda possuem pendências em ao menos uma UO.")
+            cols = st.columns(3)
+            for i, (_, incident) in enumerate(incidents_to_show_df.iterrows()):
+                col = cols[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=True)
+    else:
+        all_incidents_df = incident_manager.get_all_incidents()
+        if all_incidents_df.empty:
+            st.info("Nenhum alerta de incidente cadastrado no sistema.")
+            return
+        try:
+            all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
+            sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
+        except Exception:
+            sorted_incidents = all_incidents_df
+        covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
+        pending_incidents_df = sorted_incidents[~sorted_incidents['id'].isin(covered_incident_ids)]
+        covered_incidents_df = sorted_incidents[sorted_incidents['id'].isin(covered_incident_ids)]
+        st.subheader("🚨 Alertas Pendentes de Análise")
+        if pending_incidents_df.empty:
+            st.success(f"🎉 Ótimo trabalho! Não há alertas pendentes para a unidade **{user_unit}**.")
+        else:
+            st.write(f"Você tem **{len(pending_incidents_df)}** alerta(s) para analisar.")
+            cols_pending = st.columns(3)
+            for i, (_, incident) in enumerate(pending_incidents_df.iterrows()):
+                col = cols_pending[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=True)
+        st.divider()
+        st.subheader("✅ Alertas já Analisados")
+        if covered_incidents_df.empty:
+            st.info("Nenhum alerta foi analisado por esta unidade ainda.")
+        else:
+            cols_covered = st.columns(3)
+            for i, (_, incident) in enumerate(covered_incidents_df.iterrows()):
+                col = cols_covered[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=False)
+
+def show_dashboard_page():
     check_permission(level='viewer')
-
-    if 'item_to_edit' in st.session_state:
-        edit_action_dialog(st.session_state.item_to_edit)
-
-    full_action_plan_df = load_action_plan_data()
-
-    # ... (seção de filtros não precisa de alterações)
-    st.subheader("Filtros de Visualização")
-    col1, col2 = st.columns(2)
-    with col1:
-        unit_options = ["Todas"] + sorted(full_action_plan_df['unidade_operacional'].unique().tolist()) if not full_action_plan_df.empty else ["Todas"]
-        user_unit = st.session_state.get('unit_name', 'Global')
-        default_index = 0
-        if user_unit != 'Global' and user_unit in unit_options: default_index = unit_options.index(user_unit)
-        selected_unit = st.selectbox("Filtrar por Unidade Operacional:", options=unit_options, index=default_index)
-    with col2:
-        status_options = ["Todos", "Pendentes", "Concluídos"]
-        selected_status_filter = st.selectbox("Filtrar por Status:", options=status_options)
-    filtered_df = full_action_plan_df.copy()
-    if selected_unit != "Todas": filtered_df = filtered_df[filtered_df['unidade_operacional'] == selected_unit]
-    if selected_status_filter == "Pendentes": filtered_df = filtered_df[~filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])]
-    elif selected_status_filter == "Concluídos": filtered_df = filtered_df[filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])]
-    st.divider()
-    if filtered_df.empty:
-        st.info("Nenhum item encontrado com os filtros selecionados."); st.stop()
-    total_pending = len(filtered_df[~filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])])
-    st.metric("Total de Ações Abertas (na visão atual)", total_pending)
-
-    is_editor_or_admin = get_user_role() in ['editor', 'admin']
-    filtered_df['status_order'] = filtered_df['status'].apply(lambda x: 0 if x == 'Pendente' else 1 if x == 'Em Andamento' else 2)
-    sorted_df = filtered_df.sort_values(by='status_order')
-
-    for _, row in sorted_df.iterrows():
-        is_overdue = False
-        status = row['status']
-        if status.lower() in ['pendente', 'em andamento']:
-            try:
-                prazo_dt = datetime.strptime(row['prazo_inicial'], "%d/%m/%Y").date()
-                if prazo_dt < date.today(): is_overdue = True
-            except (ValueError, TypeError): pass
-        
-        container_border_color = "#FF4B4B" if is_overdue else True
-        
-        with st.container(border=container_border_color):
-            col1, col2, col3 = st.columns([4, 2, 1])
-            with col1:
-                overdue_icon = "⚠️ " if is_overdue else ""
-                st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
-                st.caption(f"**UO:** {row['unidade_operacional']} | **Incidente:** {row['evento_resumo']}")
-                if row.get('url_evidencia'): st.markdown(f" bukti [Ver Evidência]({row['url_evidencia']})", unsafe_allow_html=True)
-            with col2:
-                if status == "Pendente": st.warning(f"**Status:** {status}")
-                elif status == "Em Andamento": st.info(f"**Status:** {status}")
-                else: st.success(f"**Status:** {status}")
-                st.write(f"**Prazo:** {row['prazo_inicial']}")
-            with col3:
-                if is_editor_or_admin:
-                    # <<< MUDANÇA IMPORTANTE: Função que prepara o estado do formulário >>>
-                    def set_item_to_edit(item_row):
-                        st.session_state.item_to_edit = item_row.to_dict()
-                        # Copia os valores para chaves de formulário separadas
-                        st.session_state.form_status = item_row.get('status', 'Pendente')
-                        st.session_state.form_responsavel = item_row.get('responsavel_email', '')
-                        st.session_state.form_co_responsavel = item_row.get('co_responsavel_email', '')
-                        try:
-                            st.session_state.form_prazo = datetime.strptime(item_row.get('prazo_inicial'), "%d/%m/%Y").date()
-                        except (ValueError, TypeError):
-                            st.session_state.form_prazo = None
-
-                    st.button("Editar Ação", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
+    incident_manager = get_incident_manager()
+    display_incident_list(incident_manager)
