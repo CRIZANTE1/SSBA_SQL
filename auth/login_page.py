@@ -26,7 +26,7 @@ def show_logout_button():
     """Mostra o botão de logout na barra lateral e lida com o evento de logout."""
     with st.sidebar:
         st.divider()
-        if st.button("Sair do Sistema", use_container_width=True):
+        if st.button("Sair do Sistema", width='stretch'):
             user_email_to_log = get_user_email()
             if user_email_to_log:
                 log_action("USER_LOGOUT", {"message": f"Usuário '{user_email_to_log}' deslogado."})
@@ -38,4 +38,5 @@ def show_logout_button():
                     del st.session_state[key]
             
             st.logout()
+
 
