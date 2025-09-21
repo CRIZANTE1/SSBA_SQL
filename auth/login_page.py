@@ -1,14 +1,29 @@
 import streamlit as st
+import json 
+import os  
+from streamlit_lottie import st_lottie
 from .auth_utils import get_user_display_name, get_user_email, is_user_logged_in
 from .azure_auth import get_login_button
 from operations.audit_logger import log_action
 
+@st.cache_data
+def load_lottie_file(filepath: str):
+    """Carrega um arquivo Lottie JSON do caminho especificado."""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.error(f"Arquivo de animação não encontrado em: {filepath}")
+        return None
+    except json.JSONDecodeError:
+        st.error(f"Erro ao ler o arquivo de animação. Verifique se é um JSON válido.")
+        return None
+
 def show_login_page():
     """
-    Mostra uma página de login minimalista com os botões alinhados à esquerda.
+    Mostra uma página de login minimalista com os botões à esquerda e uma animação Lottie local à direita.
     """
     if not is_user_logged_in():
-        # CSS para esconder o IFrame do Google que aparece no topo após o clique
         st.markdown("""
         <style>
             iframe[title="st.login()"] {
@@ -17,17 +32,13 @@ def show_login_page():
         </style>
         """, unsafe_allow_html=True)
 
-        # Lógica para acionar o login do Google
         if 'google_login_triggered' not in st.session_state:
             st.session_state.google_login_triggered = False
-
         if st.session_state.get('google_login_triggered', False):
             st.login()
             st.session_state.google_login_triggered = False
 
-        # --- Layout para alinhar no canto ---
-        # Criamos duas colunas: uma estreita para o conteúdo e uma larga e vazia.
-        login_col, empty_col = st.columns([1, 2]) # Proporção 1:2
+        login_col, lottie_col = st.columns([1, 1.5])
 
         with login_col:
             st.title("Sistema de Gestão de Incidentes")
@@ -35,14 +46,30 @@ def show_login_page():
             st.subheader("Por favor, faça login para continuar")
             st.write("")
 
-            # Botão Google
             if st.button("Entrar com Google", use_container_width=True, type="primary"):
                 st.session_state.google_login_triggered = True
 
             st.markdown("<p style='text-align: center; margin: 10px 0;'>ou</p>", unsafe_allow_html=True)
             
-            # Botão Azure
             get_login_button()
+        
+        with lottie_col:
+
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            lottie_filepath = os.path.join(current_dir, '..', 'lotties', 'login_animation.json')
+            
+            lottie_animation = load_lottie_file(lottie_filepath)
+            
+            if lottie_animation:
+                st_lottie(
+                    lottie_animation,
+                    speed=1,
+                    loop=True,
+                    quality="high",
+                    height=400,
+                    width=400,
+                    key="login_lottie"
+                )
 
         return False
     return True
@@ -52,7 +79,6 @@ def show_user_header():
     st.sidebar.write(f"**{get_user_display_name()}**")
 
 def show_logout_button():
-    """Mostra o botão de logout e limpa todas as variáveis de sessão relevantes."""
     with st.sidebar:
         st.divider()
         if st.button("Sair do Sistema", width='stretch'):
@@ -73,9 +99,6 @@ def show_logout_button():
                 st.logout()
             else:
                 st.rerun()
-
-
-
 
 
 
