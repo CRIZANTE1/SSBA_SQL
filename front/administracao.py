@@ -8,6 +8,7 @@ from auth.auth_utils import check_permission
 from gdrive.google_api_manager import GoogleApiManager
 from operations.audit_logger import log_action
 from AI.api_Operation import PDFQA
+from front.admin_dashboard import display_admin_summary_dashboard
 
 # --- LÓGICA DE NEGÓCIO PARA CADASTRO DE INCIDENTE ---
 
@@ -219,50 +220,38 @@ def user_dialog(user_data=None):
 
 def show_admin_page():
     check_permission(level='admin')
-    
     st.title("🚀 Painel de Administração")
-
     if st.session_state.get('unit_name') != 'Global':
-        st.error("Acesso restrito ao Administrador Global.")
-        st.stop()
+        st.error("Acesso restrito ao Administrador Global."); st.stop()
     
-   
-    tab_incident, tab_users, tab_requests, tab_logs = st.tabs([
-    "Cadastrar Alerta", "Gerenciar Usuários", "Solicitações de Acesso", "Logs de Auditoria"
-])
+    tab_dashboard, tab_incident, tab_users, tab_requests, tab_logs = st.tabs([
+        "📊 Dashboard Global", "➕ Cadastrar Alerta", "👥 Gerenciar Usuários", "📥 Solicitações", "📜 Logs"
+    ])
 
-    with tab_incident:
+    with tab_dashboard:
+        display_admin_summary_dashboard()
+
+    with tab_incident: 
         display_incident_registration_tab()
 
     with tab_users:
         st.header("Gerenciar Usuários do Sistema")
         matrix_manager = get_matrix_manager()
-
-        if st.button("➕ Adicionar Novo Usuário"):
-            user_dialog()
-
+        if st.button("➕ Adicionar Novo Usuário"): user_dialog()
         all_users_df = matrix_manager.get_all_users_df()
         if not all_users_df.empty:
             st.write("Clique em uma linha para editar ou remover um usuário.")
-            
             selected_user = st.dataframe(all_users_df, width='stretch', hide_index=True, on_select="rerun", selection_mode="single-row")
-            
             if selected_user.selection.rows:
-                selected_index = selected_user.selection.rows[0]
-                user_to_manage = all_users_df.iloc[selected_index].to_dict()
-                
+                user_to_manage = all_users_df.iloc[selected_user.selection.rows[0]].to_dict()
                 st.subheader(f"Ações para: {user_to_manage['nome']}")
                 col1, col2 = st.columns(2)
-                if col1.button("✏️ Editar Usuário", width='stretch'): 
-                    user_dialog(user_to_manage)                    
-                if col2.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
+                if col1.button("✏️ Editar Usuário", width='stretch'): user_dialog(user_to_manage)
+                if col2.button("🗑️ Remover Usuário", type="primary", width='stretch'):
                     if matrix_manager.remove_user(user_to_manage['email']):
-                        st.success(f"Usuário '{user_to_manage['email']}' removido.")
-                        st.rerun()
-                    else:
-                        st.error("Falha ao remover usuário.")
-        else:
-            st.info("Nenhum usuário cadastrado.")
+                        st.success(f"Usuário '{user_to_manage['email']}' removido."); st.rerun()
+                    else: st.error("Falha ao remover usuário.")
+        else: st.info("Nenhum usuário cadastrado.")
 
     with tab_logs:
         st.header("📜 Logs de Auditoria do Sistema")
@@ -270,44 +259,29 @@ def show_admin_page():
         logs_df = matrix_manager.get_audit_logs()
         if not logs_df.empty:
             st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), width='stretch', hide_index=True)
-        else:
-            st.info("Nenhum registro de log encontrado.")
+        else: st.info("Nenhum registro de log encontrado.")
 
     with tab_requests:
         st.header("Solicitações de Acesso Pendentes")
         matrix_manager = get_matrix_manager()
         pending_requests_df = matrix_manager.get_pending_access_requests()
-    
         if pending_requests_df.empty:
-            st.info("Nenhuma solicitação de acesso pendente no momento.")
+            st.info("Nenhuma solicitação de acesso pendente.")
         else:
             st.write("Aprove ou rejeite os novos usuários.")
-            
             for index, row in pending_requests_df.iterrows():
                 with st.container(border=True):
                     col1, col2, col3, col_approve, col_reject = st.columns([2.5, 2, 1.5, 1, 1])
                     col1.text_input("E-mail", value=row['email'], disabled=True, key=f"email_{index}")
                     col2.text_input("Unidade", value=row['unidade_solicitada'], disabled=True, key=f"unit_{index}")
-                    
-                    role_to_assign = col3.selectbox(
-                        "Definir Papel",
-                        options=["viewer", "editor", "admin"],
-                        index=0, 
-                        key=f"role_{index}"
-                    )
-                    
+                    role_to_assign = col3.selectbox("Definir Papel", options=["viewer", "editor", "admin"], index=0, key=f"role_{index}")
                     if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", width='stretch'):
                         with st.spinner(f"Aprovando {row['email']}..."):
                             if matrix_manager.approve_access_request(row['email'], role_to_assign):
-                                st.success(f"Usuário {row['email']} aprovado!")
-                                st.rerun()
-                            else:
-                                st.error(f"Falha ao aprovar {row['email']}.")
-                    
+                                st.success(f"Usuário {row['email']} aprovado!"); st.rerun()
+                            else: st.error(f"Falha ao aprovar {row['email']}.")
                     if col_reject.button("Rejeitar", key=f"reject_{index}", width='stretch'):
                         with st.spinner(f"Rejeitando {row['email']}..."):
                             if matrix_manager.reject_access_request(row['email']):
-                                st.warning(f"Solicitação de {row['email']} rejeitada.")
-                                st.rerun()
-                            else:
-                                st.error(f"Falha ao rejeitar {row['email']}.")
+                                st.warning(f"Solicitação de {row['email']} rejeitada."); st.rerun()
+                            else: st.error(f"Falha ao rejeitar {row['email']}.")
