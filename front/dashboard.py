@@ -42,124 +42,109 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     
     if blocking_actions.empty:
         st.success("Não há ações de bloqueio sugeridas para este incidente.")
-        if st.button("Fechar"):
-            st.rerun()
+        if st.button("Fechar"): st.rerun()
         return
 
     st.subheader("Selecione as ações aplicáveis e defina os responsáveis")
-    st.info("Ative uma ação no seletor à esquerda para habilitar os campos e incluí-la no plano.")
+    st.info("Ative uma ação para habilitar os campos e incluí-la no plano de ação.")
 
-    with st.form("abrangencia_dialog_form_individual"):
-        # Lógica para Admin Global selecionar a UO (permanece a mesma)
-        is_admin = st.session_state.get('unit_name') == 'Global'
-        target_unit_name = None
-        if is_admin:
-            matrix_manager = get_matrix_manager()
-            all_units = matrix_manager.get_all_units()
-            options = ["-- Digitar nome da UO --"] + all_units
-            chosen_option = st.selectbox("Selecione a Unidade Operacional (UO) de destino", options=options)
-            if chosen_option == "-- Digitar nome da UO --":
-                target_unit_name = st.text_input("Digite o nome da UO", key="new_uo_input")
-            else:
-                target_unit_name = chosen_option
+    # Lógica para Admin Global selecionar a UO
+    is_admin = st.session_state.get('unit_name') == 'Global'
+    if is_admin:
+        matrix_manager = get_matrix_manager()
+        all_units = matrix_manager.get_all_units()
+        options = ["-- Digitar nome da UO --"] + all_units
+        chosen_option = st.selectbox("Selecione a Unidade Operacional (UO) de destino", options=options, key="admin_uo_selector")
+        if chosen_option == "-- Digitar nome da UO --":
+            st.text_input("Digite o nome da UO", key="admin_uo_text_input")
+    
+    st.markdown("---")
+
+    # --- PARTE 1: OS TOGGLES FICAM FORA DO FORMULÁRIO ---
+    # Isso garante que a interação com eles cause uma re-execução imediata.
+    for _, action in blocking_actions.iterrows():
+        st.toggle(action['descricao_acao'], key=f"toggle_{action['id']}")
+    
+    st.divider()
+
+    # --- PARTE 2: OS INPUTS E O BOTÃO FICAM DENTRO DO FORMULÁRIO ---
+    with st.form("abrangencia_form_data"):
+        st.markdown("**Preencha os dados para as ações ativadas acima:**")
         
-        st.markdown("---")
+        # Cabeçalho para os inputs
+        col_resp, col_co_resp, col_prazo = st.columns([2, 2, 1])
+        col_resp.caption("Responsável Principal")
+        col_co_resp.caption("Co-responsável (Opcional)")
+        col_prazo.caption("Prazo Final")
 
-        # Loop para renderizar o formulário dinâmico
+        # Loop para renderizar os inputs, que agora são controlados pelos toggles externos
         for _, action in blocking_actions.iterrows():
             action_id = action['id']
+            # Verifica o estado do toggle correspondente para habilitar/desabilitar
+            is_enabled = st.session_state.get(f"toggle_{action_id}", False)
             
-            col_toggle, col_resp, col_co_resp, col_prazo = st.columns([2, 1.5, 1.5, 1])
-
-            with col_toggle:
-                is_pertinent = st.toggle(action['descricao_acao'], key=f"toggle_{action_id}")
-            
+            col_resp, col_co_resp, col_prazo = st.columns([2, 2, 1])
             with col_resp:
-                st.text_input(
-                    "Responsável", 
-                    value=st.session_state.get('user_info', {}).get('email', ''),
-                    key=f"resp_{action_id}",
-                    disabled=not is_pertinent,
-                    label_visibility="collapsed"
-                )
+                st.text_input("Responsável", value=st.session_state.get('user_info', {}).get('email', ''), key=f"resp_{action_id}", disabled=not is_enabled, label_visibility="collapsed")
             with col_co_resp:
-                st.text_input(
-                    "Co-responsável",
-                    placeholder="Co-responsável (Opcional)",
-                    key=f"co_resp_{action_id}",
-                    disabled=not is_pertinent,
-                    label_visibility="collapsed"
-                )
+                st.text_input("Co-responsável", key=f"co_resp_{action_id}", disabled=not is_enabled, label_visibility="collapsed")
             with col_prazo:
-                st.date_input(
-                    "Prazo",
-                    min_value=date.today(),
-                    key=f"prazo_{action_id}",
-                    disabled=not is_pertinent,
-                    label_visibility="collapsed"
-                )
-            st.divider()
-
+                st.date_input("Prazo", min_value=date.today(), key=f"prazo_{action_id}", disabled=not is_enabled, label_visibility="collapsed")
+        
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
-        if submitted:
-            # Lógica de processamento pós-submissão
-            unit_to_save = target_unit_name if is_admin else st.session_state.unit_name
-            if is_admin and (not unit_to_save or not unit_to_save.strip()):
+    if submitted:
+        # Lógica de processamento (permanece quase a mesma)
+        unit_to_save = None
+        if is_admin:
+            if st.session_state.admin_uo_selector == "-- Digitar nome da UO --":
+                unit_to_save = st.session_state.admin_uo_text_input
+            else:
+                unit_to_save = st.session_state.admin_uo_selector
+            if not unit_to_save or not unit_to_save.strip():
                 st.error("Administrador: Por favor, selecione ou digite o nome da Unidade Operacional.")
                 return
+        else:
+            unit_to_save = st.session_state.unit_name
 
-            actions_to_save = []
-            validation_passed = True
-            # Loop para coletar dados das ações selecionadas
-            for _, action in blocking_actions.iterrows():
-                action_id = action['id']
-                if st.session_state[f"toggle_{action_id}"]:
-                    responsavel = st.session_state[f"resp_{action_id}"]
-                    co_responsavel = st.session_state[f"co_resp_{action_id}"]
-                    prazo = st.session_state[f"prazo_{action_id}"]
-                    
-                    if not responsavel or not prazo:
-                        st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável ou Prazo preenchido.")
-                        validation_passed = False
-                        break
-                    
-                    actions_to_save.append({
-                        "id_acao_bloqueio": action_id,
-                        "descricao": action['descricao_acao'],
-                        "unidade_operacional": unit_to_save,
-                        "responsavel_email": responsavel,
-                        "co_responsavel_email": co_responsavel,
-                        "prazo_inicial": prazo
-                    })
+        actions_to_save = []
+        for _, action in blocking_actions.iterrows():
+            action_id = action['id']
+            if st.session_state.get(f"toggle_{action_id}", False):
+                responsavel = st.session_state[f"resp_{action_id}"]
+                if not responsavel:
+                    st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável preenchido.")
+                    return
+                
+                actions_to_save.append({
+                    "id_acao_bloqueio": action_id, "descricao": action['descricao_acao'],
+                    "unidade_operacional": unit_to_save, "responsavel_email": responsavel,
+                    "co_responsavel_email": st.session_state[f"co_resp_{action_id}"],
+                    "prazo_inicial": st.session_state[f"prazo_{action_id}"]
+                })
+        
+        if not actions_to_save:
+            st.warning("Nenhuma ação foi selecionada. Ative uma ou mais ações para salvar.")
+            return
 
-            if not validation_passed:
-                return
+        saved_count = 0
+        with st.spinner(f"Salvando {len(actions_to_save)} ação(ões) para a UO: {unit_to_save}..."):
+            for action_data in actions_to_save:
+                new_id = incident_manager.add_abrangencia_action(
+                    id_acao_bloqueio=action_data['id_acao_bloqueio'], unidade_operacional=action_data['unidade_operacional'],
+                    responsavel_email=action_data['responsavel_email'], co_responsavel_email=action_data['co_responsavel_email'],
+                    prazo_inicial=action_data['prazo_inicial'], status="Pendente"
+                )
+                if new_id:
+                    saved_count += 1
+                    log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": action_data['descricao'], "target_unit": unit_to_save})
+        
+        st.success(f"{saved_count} ação(ões) salvas com sucesso!")
+        st.balloons()
+        import time
+        time.sleep(2)
+        st.rerun()
 
-            if not actions_to_save:
-                st.warning("Nenhuma ação foi selecionada. Ative o seletor de uma ou mais ações para salvar.")
-                return
-
-            saved_count = 0
-            with st.spinner(f"Salvando {len(actions_to_save)} ação(ões) para a UO: {unit_to_save}..."):
-                for action_data in actions_to_save:
-                    new_id = incident_manager.add_abrangencia_action(
-                        id_acao_bloqueio=action_data['id_acao_bloqueio'],
-                        unidade_operacional=action_data['unidade_operacional'],
-                        responsavel_email=action_data['responsavel_email'],
-                        co_responsavel_email=action_data['co_responsavel_email'],
-                        prazo_inicial=action_data['prazo_inicial'],
-                        status="Pendente"
-                    )
-                    if new_id:
-                        saved_count += 1
-                        log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": action_data['descricao'], "target_unit": unit_to_save})
-            
-            st.success(f"{saved_count} ação(ões) salvas com sucesso!")
-            st.balloons()
-            import time
-            time.sleep(2)
-            st.rerun()
 
 def render_incident_card(incident, col, incident_manager, is_pending):
     with col.container(border=True):
