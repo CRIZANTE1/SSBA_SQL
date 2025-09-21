@@ -19,3 +19,4 @@ streamlit-option-menu
 fuzzywuzzy
 python-Levenshtein
 msal
+streamlit-javascript
