@@ -269,11 +269,7 @@ def show_admin_page():
         matrix_manager = get_matrix_manager()
         logs_df = matrix_manager.get_audit_logs()
         if not logs_df.empty:
-            st.dataframe(
-                logs_df.sort_values(by='timestamp', ascending=False),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), width='stretch', hide_index=True)
         else:
             st.info("Nenhum registro de log encontrado.")
 
@@ -300,7 +296,7 @@ def show_admin_page():
                         key=f"role_{index}"
                     )
                     
-                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", use_container_width=True):
+                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", width='stretch'):
                         with st.spinner(f"Aprovando {row['email']}..."):
                             if matrix_manager.approve_access_request(row['email'], role_to_assign):
                                 st.success(f"Usuário {row['email']} aprovado!")
@@ -308,7 +304,7 @@ def show_admin_page():
                             else:
                                 st.error(f"Falha ao aprovar {row['email']}.")
                     
-                    if col_reject.button("Rejeitar", key=f"reject_{index}", use_container_width=True):
+                    if col_reject.button("Rejeitar", key=f"reject_{index}", width='stretch'):
                         with st.spinner(f"Rejeitando {row['email']}..."):
                             if matrix_manager.reject_access_request(row['email']):
                                 st.warning(f"Solicitação de {row['email']} rejeitada.")
