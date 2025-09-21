@@ -148,7 +148,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
             display_url = convert_drive_url_to_displayable(foto_url)
             if display_url:
-                st.image(display_url, use_container_width=True)
+                st.image(display_url, width='stretch')
             else:
                 st.caption("Imagem não disponível ou URL inválida")
         else:
@@ -159,7 +159,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         st.write(incident.get('o_que_aconteceu'))
         
         if is_pending:
-            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
+            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'):
                 abrangencia_dialog(incident, incident_manager)
         else:
             st.success("✔ Análise Registrada", icon="✅")
