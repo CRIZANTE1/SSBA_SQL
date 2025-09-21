@@ -6,7 +6,7 @@ from .azure_auth import get_login_url
 from operations.audit_logger import log_action
 
 # --- URLs dos Logos ---
-GOOGLE_LOGO_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/2048px-Google_%22G%22_logo.svg.png"
+GOOGLE_LOGO_URL = "https://img.icons8.com/?size=512&id=17949&format=png"
 MICROSOFT_LOGO_URL = "https://cdn-icons-png.flaticon.com/512/732/732221.png"
 
 def show_login_page():
@@ -146,6 +146,7 @@ def show_logout_button():
                 st.logout()
             else:
                 st.rerun()
+
 
 
 
