@@ -245,13 +245,7 @@ def show_admin_page():
         if not all_users_df.empty:
             st.write("Clique em uma linha para editar ou remover um usuário.")
             
-            selected_user = st.dataframe(
-                all_users_df,
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row"
-            )
+            selected_user = st.dataframe(all_users_df, width='stretch', hide_index=True, on_select="rerun", selection_mode="single-row")
             
             if selected_user.selection.rows:
                 selected_index = selected_user.selection.rows[0]
