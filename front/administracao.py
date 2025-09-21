@@ -253,8 +253,8 @@ def show_admin_page():
                 
                 st.subheader(f"Ações para: {user_to_manage['nome']}")
                 col1, col2 = st.columns(2)
-                if col1.button("✏️ Editar Usuário", use_container_width=True):
-                    user_dialog(user_to_manage)
+                if col1.button("✏️ Editar Usuário", width='stretch'): 
+                    user_dialog(user_to_manage)                    
                 if col2.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
                     if matrix_manager.remove_user(user_to_manage['email']):
                         st.success(f"Usuário '{user_to_manage['email']}' removido.")
