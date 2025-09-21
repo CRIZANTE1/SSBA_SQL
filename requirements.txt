@@ -20,3 +20,4 @@ fuzzywuzzy
 python-Levenshtein
 msal
 streamlit-javascript
+streamlit_lottie
