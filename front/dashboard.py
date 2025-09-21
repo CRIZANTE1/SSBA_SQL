@@ -1,5 +1,3 @@
-# front/dashboard.py
-
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
@@ -48,7 +46,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.subheader("Selecione as ações aplicáveis e defina os responsáveis")
     st.info("Ative uma ação para habilitar os campos e incluí-la no plano de ação.")
 
-    # Lógica para Admin Global selecionar a UO
     is_admin = st.session_state.get('unit_name') == 'Global'
     if is_admin:
         matrix_manager = get_matrix_manager()
@@ -60,27 +57,27 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     
     st.markdown("---")
 
-    # --- PARTE 1: OS TOGGLES FICAM FORA DO FORMULÁRIO ---
-    # Isso garante que a interação com eles cause uma re-execução imediata.
+    # --- PARTE 1: TOGGLES (com on_change para forçar o rerun) ---
     for _, action in blocking_actions.iterrows():
-        st.toggle(action['descricao_acao'], key=f"toggle_{action['id']}")
+        st.toggle(
+            action['descricao_acao'],
+            key=f"toggle_{action['id']}",
+            on_change=st.rerun # <<< ESTA É A CORREÇÃO CRÍTICA
+        )
     
     st.divider()
 
-    # --- PARTE 2: OS INPUTS E O BOTÃO FICAM DENTRO DO FORMULÁRIO ---
+    # --- PARTE 2: INPUTS DENTRO DO FORMULÁRIO ---
     with st.form("abrangencia_form_data"):
         st.markdown("**Preencha os dados para as ações ativadas acima:**")
         
-        # Cabeçalho para os inputs
         col_resp, col_co_resp, col_prazo = st.columns([2, 2, 1])
         col_resp.caption("Responsável Principal")
         col_co_resp.caption("Co-responsável (Opcional)")
         col_prazo.caption("Prazo Final")
 
-        # Loop para renderizar os inputs, que agora são controlados pelos toggles externos
         for _, action in blocking_actions.iterrows():
             action_id = action['id']
-            # Verifica o estado do toggle correspondente para habilitar/desabilitar
             is_enabled = st.session_state.get(f"toggle_{action_id}", False)
             
             col_resp, col_co_resp, col_prazo = st.columns([2, 2, 1])
@@ -94,7 +91,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
     if submitted:
-        # Lógica de processamento (permanece quase a mesma)
         unit_to_save = None
         if is_admin:
             if st.session_state.admin_uo_selector == "-- Digitar nome da UO --":
@@ -144,7 +140,6 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         import time
         time.sleep(2)
         st.rerun()
-
 
 def render_incident_card(incident, col, incident_manager, is_pending):
     with col.container(border=True):
