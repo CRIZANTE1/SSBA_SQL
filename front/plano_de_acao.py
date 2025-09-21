@@ -103,10 +103,8 @@ def show_plano_acao_page():
     edited_df = st.data_editor(
         filtered_df,
         column_config={
-            # Oculta colunas de ID
             "id": None, 
             "id_acao_bloqueio": None,
-            # Configura colunas visíveis
             "unidade_operacional": st.column_config.TextColumn("Unidade", disabled=True),
             "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", help="A ação a ser implementada", disabled=True, width="large"),
             "responsavel_email": st.column_config.TextColumn("Responsável", disabled=True),
@@ -115,12 +113,12 @@ def show_plano_acao_page():
                 "Status",
                 options=["Pendente", "Em Andamento", "Concluído", "Cancelado"],
                 required=True,
-                disabled=not is_editor_or_admin # Desabilita a edição para viewers
+                disabled=not is_editor_or_admin
             ),
             "data_conclusao": st.column_config.TextColumn("Data de Conclusão", disabled=True)
         },
         column_order=["unidade_operacional", "descricao_acao", "responsavel_email", "prazo_inicial", "status", "data_conclusao"],
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         key="action_plan_editor"
     )
