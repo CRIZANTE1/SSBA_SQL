@@ -5,10 +5,10 @@ import logging
 
 logger = logging.getLogger('abrangencia_app.config')
 
-
 SPREADSHEET_ID = None
 PUBLIC_IMAGES_FOLDER_ID = None
 RESTRICTED_ATTACHMENTS_FOLDER_ID = None
+ACTION_PLAN_EVIDENCE_FOLDER_ID = None 
 CENTRAL_LOG_SHEET_NAME = "log_auditoria" 
 
 try:
@@ -17,15 +17,20 @@ try:
         SPREADSHEET_ID = app_settings.get("spreadsheet_id")
         PUBLIC_IMAGES_FOLDER_ID = app_settings.get("public_images_folder_id")
         RESTRICTED_ATTACHMENTS_FOLDER_ID = app_settings.get("restricted_attachments_folder_id")
-        
-        if not all([SPREADSHEET_ID, PUBLIC_IMAGES_FOLDER_ID, RESTRICTED_ATTACHMENTS_FOLDER_ID]):
-            missing = [k for k, v in {
-                "spreadsheet_id": SPREADSHEET_ID, 
-                "public_images_folder_id": PUBLIC_IMAGES_FOLDER_ID, 
-                "restricted_attachments_folder_id": RESTRICTED_ATTACHMENTS_FOLDER_ID
-            }.items() if not v]
-            st.error(f"Erro Crítico: As seguintes configurações estão faltando em [app_settings] no seu secrets.toml: {', '.join(missing)}")
-            logger.critical(f"Configurações essenciais ausentes nos secrets: {', '.join(missing)}")
+        ACTION_PLAN_EVIDENCE_FOLDER_ID = app_settings.get("action_plan_evidence_folder_id")
+
+        # Validação aprimorada para todas as configurações necessárias
+        required_settings = {
+            "spreadsheet_id": SPREADSHEET_ID, 
+            "public_images_folder_id": PUBLIC_IMAGES_FOLDER_ID, 
+            "restricted_attachments_folder_id": RESTRICTED_ATTACHMENTS_FOLDER_ID,
+            "action_plan_evidence_folder_id": ACTION_PLAN_EVIDENCE_FOLDER_ID # <<< ADICIONA À VALIDAÇÃO
+        }
+        missing = [k for k, v in required_settings.items() if not v]
+        if missing:
+            error_message = f"Erro Crítico: As seguintes configurações estão faltando em [app_settings] no seu secrets.toml: {', '.join(missing)}"
+            st.error(error_message)
+            logger.critical(error_message)
     else:
         st.error("Erro Crítico: A seção [app_settings] não foi encontrada no seu arquivo secrets.toml.")
         logger.critical("Seção [app_settings] não encontrada nos secrets.")
@@ -33,7 +38,6 @@ try:
 except Exception as e:
     st.error(f"Erro ao ler as configurações do secrets.toml: {e}")
     logger.critical(f"Erro inesperado ao ler secrets: {e}")
-
 
 # --- FUNÇÃO DE CREDENCIAIS (permanece a mesma) ---
 
