@@ -35,22 +35,22 @@ def load_action_plan_data():
         merged_df['id_incidente'] = "N/A"
 
     if not incidents_df.empty:
-        # <<< A CORREÇÃO ESTÁ NA LINHA DE RENAME ABAIXO >>>
         final_df = pd.merge(
             merged_df,
             incidents_df[['id', 'evento_resumo']],
             left_on='id_incidente', right_on='id', how='left', suffixes=('_action', '_incident')
-        ).rename(columns={'id_plan': 'id'}) # CORRIGIDO: Renomeia 'id_plan' (o ID único da ação) para 'id'
+        ).rename(columns={'id_plan': 'id'})
     else:
-        final_df = merged_df.rename(columns={'id_plan': 'id'}) # Garante o rename mesmo se não houver incidentes
+        final_df = merged_df.rename(columns={'id_plan': 'id'})
         final_df['evento_resumo'] = "Incidente original não encontrado"
 
-    final_df['descricao_acao'].fillna('Descrição da ação não encontrada', inplace=True)
-    final_df['evento_resumo'].fillna('Incidente original não encontrado', inplace=True)
+    # <<< CORREÇÕES APLICADAS AQUI (removido inplace=True) >>>
+    final_df['descricao_acao'] = final_df['descricao_acao'].fillna('Descrição da ação não encontrada')
+    final_df['evento_resumo'] = final_df['evento_resumo'].fillna('Incidente original não encontrado')
     
     if 'url_evidencia' not in final_df.columns:
         final_df['url_evidencia'] = ''
-    final_df['url_evidencia'].fillna('', inplace=True)
+    final_df['url_evidencia'] = final_df['url_evidencia'].fillna('')
 
     return final_df
 
