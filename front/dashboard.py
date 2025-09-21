@@ -145,6 +145,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
 # --- O RESTANTE DO ARQUIVO PERMANECE IGUAL ---
 
 def render_incident_card(incident, col, incident_manager, is_pending):
+    """Função auxiliar para renderizar um card de incidente."""
     with col.container(border=True):
         foto_url = incident.get('foto_url')
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
@@ -156,8 +157,18 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         else:
             st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
             st.caption("Sem imagem anexada")
+
         st.subheader(incident.get('evento_resumo'))
         st.write(incident.get('o_que_aconteceu'))
+        
+
+        anexos_url = incident.get('anexos_url')
+        if pd.notna(anexos_url) and isinstance(anexos_url, str) and anexos_url.strip():
+            st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
+        
+        # Adiciona um espaço antes do botão para melhorar o layout
+        st.write("") 
+
         if is_pending:
             if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'):
                 abrangencia_dialog(incident, incident_manager)
