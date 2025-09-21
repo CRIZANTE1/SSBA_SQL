@@ -73,15 +73,16 @@ def load_comprehensive_admin_data():
                 pending_execution['prazo_dt'] = pd.to_datetime(pending_execution['prazo_inicial'], format="%d/%m/%Y", errors='coerce')
                 overdue_actions_df = pending_execution.dropna(subset=['prazo_dt'])[pending_execution['prazo_dt'].dt.date < date.today()]
 
-    # <<< ESTA É A CORREÇÃO CRÍTICA >>>
-    # Define as colunas esperadas ao criar o DataFrame.
-    # Se a lista estiver vazia, ele cria um DataFrame vazio com estas colunas, evitando o KeyError.
     expected_cols = ["Incidente", "Data do Incidente", "UOs Pendentes", "count", "unidades"]
     uninitiated_analyses_df = pd.DataFrame(uninitiated_analyses_list, columns=expected_cols)
     
     return uninitiated_analyses_df, overdue_actions_df, all_incidents_df, all_units
 
 def display_admin_summary_dashboard():
+    """
+    Calcula e exibe o dashboard de resumo executivo com uma interface mais limpa,
+    usando st.expander para detalhar as pendências.
+    """
     st.header("Dashboard de Resumo Executivo Global")
     
     uninitiated_df, overdue_df, incidents_df, units_list = load_comprehensive_admin_data()
@@ -90,38 +91,45 @@ def display_admin_summary_dashboard():
         st.info("Nenhuma unidade operacional encontrada. Cadastre usuários e associe-os a unidades.")
         return
 
+    # --- 1. Métricas Gerais ---
+    total_uninitiated = len(uninitiated_df)
+    total_overdue_actions = len(overdue_df)
+
     col1, col2, col3 = st.columns(3)
     col1.metric("Unidades Operacionais", len(units_list))
     col2.metric("Total de Incidentes Globais", len(incidents_df))
-    col3.metric("Incidentes com Análises Atrasadas", len(uninitiated_df))
+    # Métrica de pendências agora é mais clara
+    col3.metric("🚨 Total de Pendências Críticas", f"{total_uninitiated + total_overdue_actions}")
     st.divider()
 
-    st.subheader(f"🚨 Análises de Abrangência Atrasadas (Prazo > {PRAZO_ANALISE_DIAS} dias)")
-    if uninitiated_df.empty:
-        st.success("✅ Todas as unidades estão em dia com o início das análises de abrangência.")
-    else:
-        st.error(f"Existem {len(uninitiated_df)} incidentes com análises não iniciadas por uma ou mais UOs.", icon="🚨")
-        st.dataframe(
-            uninitiated_df[['Incidente', 'Data do Incidente', 'UOs Pendentes']],
-            width='stretch', hide_index=True
-        )
-    st.divider()
-
-    st.subheader("⚠️ Ações de Abrangência com Prazo de Execução Vencido")
-    if overdue_df.empty:
-        st.success("✅ Nenhuma ação de execução com prazo vencido.")
-    else:
-        st.warning(f"Existem {len(overdue_df)} ações individuais com prazo de execução vencido.", icon="⚠️")
-        st.dataframe(
-            overdue_df[['unidade_operacional', 'descricao_acao', 'responsavel_email', 'prazo_inicial']].rename(columns={
-                'unidade_operacional': 'UO', 'descricao_acao': 'Ação',
-                'responsavel_email': 'Responsável', 'prazo_inicial': 'Prazo Vencido'
-            }),
-            width='stretch', hide_index=True
-        )
+    # --- 2. Seção de Análises de Abrangência Atrasadas (em um expander) ---
+    expander_title_uninitiated = f"🚨 {total_uninitiated} Incidentes com Análises Atrasadas (Prazo > {PRAZO_ANALISE_DIAS} dias)"
+    with st.expander(expander_title_uninitiated, expanded=(total_uninitiated > 0)):
+        if uninitiated_df.empty:
+            st.success("✅ Todas as unidades estão em dia com o início das análises de abrangência.")
+        else:
+            st.dataframe(
+                uninitiated_df[['Incidente', 'Data do Incidente', 'UOs Pendentes']],
+                width='stretch', hide_index=True
+            )
+            
+    # --- 3. Seção de Ações de Execução Vencidas (em um expander) ---
+    expander_title_overdue = f"⚠️ {total_overdue_actions} Ações de Execução com Prazo Vencido"
+    with st.expander(expander_title_overdue, expanded=(total_overdue_actions > 0)):
+        if overdue_df.empty:
+            st.success("✅ Nenhuma ação de execução com prazo vencido.")
+        else:
+            st.dataframe(
+                overdue_df[['unidade_operacional', 'descricao_acao', 'responsavel_email', 'prazo_inicial']].rename(columns={
+                    'unidade_operacional': 'UO', 'descricao_acao': 'Ação',
+                    'responsavel_email': 'Responsável', 'prazo_inicial': 'Prazo Vencido'
+                }),
+                width='stretch', hide_index=True
+            )
     st.divider()
     
-    st.subheader("Gráfico Consolidado de Pendências por Unidade")
+    # --- 4. Gráfico Consolidado e Unidade Crítica ---
+    st.subheader("Visão Geral de Pendências por Unidade")
     
     uninitiated_counts = pd.Series(dtype=int)
     if not uninitiated_df.empty:
@@ -134,15 +142,18 @@ def display_admin_summary_dashboard():
     df_consolidated = pd.concat([uninitiated_counts, overdue_action_counts], axis=1).fillna(0).astype(int)
     
     if df_consolidated.empty or df_consolidated.sum().sum() == 0:
-        st.info("Nenhuma pendência encontrada para gerar o gráfico.")
+        st.success("🎉 Nenhuma pendência encontrada em todas as unidades.")
     else:
         df_consolidated = df_consolidated[df_consolidated.sum(axis=1) > 0]
+        
+        # O gráfico de barras vem primeiro, para uma visão rápida
         st.bar_chart(df_consolidated)
         
         df_consolidated['Total'] = df_consolidated.sum(axis=1)
         most_critical_unit = df_consolidated['Total'].idxmax()
         
-        with st.expander(f"🔍 Detalhes da Unidade Mais Crítica: {most_critical_unit}"):
+        # O detalhamento da unidade mais crítica também fica em um expander
+        with st.expander(f"🔍 Detalhes da Unidade Mais Crítica: **{most_critical_unit}**"):
             st.write(f"**Análises Não Iniciadas Atrasadas ({int(df_consolidated.loc[most_critical_unit, 'Análises Atrasadas'])}):**")
             critical_uninitiated = uninitiated_df[uninitiated_df['unidades'].apply(lambda x: most_critical_unit in x)]
             if not critical_uninitiated.empty:
