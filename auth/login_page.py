@@ -5,14 +5,9 @@ from operations.audit_logger import log_action
 
 def show_login_page():
     """
-    Mostra a página de login com botões menores e centralizados.
+    Mostra uma página de login minimalista com os botões alinhados à esquerda.
     """
     if not is_user_logged_in():
-        st.title("Sistema de Gestão de Incidentes")
-        st.markdown("---")
-        st.subheader("Por favor, faça login para continuar")
-        st.write("")
-
         # CSS para esconder o IFrame do Google que aparece no topo após o clique
         st.markdown("""
         <style>
@@ -30,11 +25,16 @@ def show_login_page():
             st.login()
             st.session_state.google_login_triggered = False
 
-        # --- Layout para botões menores ---
-        # Criamos colunas principais para centralizar o conteúdo
-        main_col1, main_col2, main_col3 = st.columns([1, 1, 1])
+        # --- Layout para alinhar no canto ---
+        # Criamos duas colunas: uma estreita para o conteúdo e uma larga e vazia.
+        login_col, empty_col = st.columns([1, 2]) # Proporção 1:2
 
-        with main_col2: # Usamos a coluna do meio para o conteúdo
+        with login_col:
+            st.title("Sistema de Gestão de Incidentes")
+            st.markdown("---")
+            st.subheader("Por favor, faça login para continuar")
+            st.write("")
+
             # Botão Google
             if st.button("Entrar com Google", use_container_width=True, type="primary"):
                 st.session_state.google_login_triggered = True
@@ -73,6 +73,7 @@ def show_logout_button():
                 st.logout()
             else:
                 st.rerun()
+
 
 
 
