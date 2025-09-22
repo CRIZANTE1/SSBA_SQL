@@ -222,3 +222,34 @@ def show_plano_acao_page():
                             def set_item_to_edit(item_row):
                                 st.session_state.item_to_edit = item_row.to_dict()
                             st.button("Editar", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
+
+    st.divider()
+
+    with st.expander("📖 Ver Histórico Completo em Tabela", expanded=False):
+        st.info("Esta tabela mostra todos os itens do plano de ação com base nos filtros acima. As edições devem ser feitas nos cards.")
+        
+        # Prepara o DataFrame para exibição
+        history_df_prepared = prepare_history_df(filtered_df)
+        
+        st.dataframe(
+            history_df_prepared,
+            column_config={
+                "id": None, "id_acao_bloqueio": None, "id_incidente": None, "url_evidencia": None,
+                "unidade_operacional": st.column_config.TextColumn("UO", width="small"),
+                "evento_resumo": st.column_config.TextColumn("Incidente Original", width="medium"),
+                "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", width="large"),
+                "status": "Status",
+                "responsavel_email": st.column_config.TextColumn("Responsável", width="medium"),
+                "prazo_inicial": "Prazo",
+                "data_conclusao": "Conclusão",
+                "foto_evidencia": st.column_config.ImageColumn("Foto Evidência", help="Thumbnail da foto anexada"),
+                "pdf_evidencia": st.column_config.LinkColumn("PDF Evidência", help="Link para o PDF anexado", display_text="📄 Ver PDF"),
+            },
+            column_order=[
+                "unidade_operacional", "evento_resumo", "descricao_acao", "status", 
+                "responsavel_email", "prazo_inicial", "data_conclusao", 
+                "foto_evidencia", "pdf_evidencia"
+            ],
+            hide_index=True,
+            width='stretch'
+        )
