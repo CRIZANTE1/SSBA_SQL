@@ -1,3 +1,5 @@
+# front/plano_de_acao.py
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -12,7 +14,7 @@ from front.dashboard import convert_drive_url_to_displayable
 def load_action_plan_data():
     """
     Carrega e une os dados do plano de ação com as descrições das ações de bloqueio
-    e informações dos incidentes originais.
+    e informações dos incidentes originais, tratando corretamente colunas de ID duplicadas.
     """
     incident_manager = get_incident_manager()
     action_plan_df = incident_manager.get_all_action_plans()
@@ -22,27 +24,34 @@ def load_action_plan_data():
     if action_plan_df.empty:
         return pd.DataFrame()
 
-    if not blocking_actions_df.empty:
-        merged_df = pd.merge(
-            action_plan_df,
-            blocking_actions_df[['id', 'descricao_acao', 'id_incidente']],
-            left_on='id_acao_bloqueio', right_on='id', how='left', suffixes=('_plan', '_block')
-        )
-    else:
-        merged_df = action_plan_df
-        merged_df['descricao_acao'] = "N/A"
-        merged_df['id_incidente'] = "N/A"
+    # --- CORREÇÃO NA LÓGICA DE MERGE E RENAME ---
 
-    if not incidents_df.empty:
-        final_df = pd.merge(
-            merged_df,
-            incidents_df[['id', 'evento_resumo']],
-            left_on='id_incidente', right_on='id', how='left', suffixes=('_action', '_incident')
-        ).rename(columns={'id_plan': 'id'})
-    else:
-        final_df = merged_df.rename(columns={'id_plan': 'id'})
-        final_df['evento_resumo'] = "Incidente original não encontrado"
+    # 1. Merge do plano de ação com as ações de bloqueio
+    # O 'id' do action_plan_df é o ID único que queremos manter.
+    # O 'id' do blocking_actions_df é o 'id_acao_bloqueio', então renomeamos antes do merge.
+    blocking_actions_renamed = blocking_actions_df.rename(columns={'id': 'id_acao_bloqueio_ref'})
+    
+    merged_df = pd.merge(
+        action_plan_df,
+        blocking_actions_renamed[['id_acao_bloqueio_ref', 'descricao_acao', 'id_incidente']],
+        left_on='id_acao_bloqueio',
+        right_on='id_acao_bloqueio_ref',
+        how='left'
+    )
 
+    # 2. Merge com os incidentes
+    # O 'id' do incidents_df é o 'id_incidente', então renomeamos antes do merge.
+    incidents_renamed = incidents_df.rename(columns={'id': 'id_incidente_ref'})
+    
+    final_df = pd.merge(
+        merged_df,
+        incidents_renamed[['id_incidente_ref', 'evento_resumo']],
+        left_on='id_incidente',
+        right_on='id_incidente_ref',
+        how='left'
+    )
+    
+    # 3. Limpeza final e preenchimento de valores nulos
     final_df['descricao_acao'] = final_df['descricao_acao'].fillna('Descrição da ação não encontrada')
     final_df['evento_resumo'] = final_df['evento_resumo'].fillna('Incidente original não encontrado')
     
@@ -50,64 +59,47 @@ def load_action_plan_data():
         final_df['url_evidencia'] = ''
     final_df['url_evidencia'] = final_df['url_evidencia'].fillna('')
 
+    # Remove colunas de referência que não são mais necessárias
+    final_df = final_df.drop(columns=['id_acao_bloqueio_ref', 'id_incidente_ref'], errors='ignore')
+
     return final_df
 
 
 @st.dialog("Editar Ação de Abrangência")
 def edit_action_dialog(item_data):
-    """Renderiza um formulário em um diálogo para editar um item do plano de ação."""
     st.subheader("Item: " + item_data.get('descricao_acao', ''))
     st.caption("Incidente Original: " + item_data.get('evento_resumo', ''))
-    
     prazo_atual = None
     if item_data.get('prazo_inicial') and isinstance(item_data['prazo_inicial'], str):
         try:
             prazo_atual = datetime.strptime(item_data['prazo_inicial'], "%d/%m/%Y").date()
-        except (ValueError, TypeError):
-            pass
-
+        except (ValueError, TypeError): pass
     with st.form("edit_action_form"):
         status_options = ["Pendente", "Em Andamento", "Concluído", "Cancelado"]
         try:
             current_status_index = status_options.index(item_data.get('status', 'Pendente'))
-        except ValueError:
-            current_status_index = 0
-            
+        except ValueError: current_status_index = 0
         new_status = st.selectbox("Status", status_options, index=current_status_index)
         new_prazo = st.date_input("Prazo para Implementação", value=prazo_atual)
         new_responsavel = st.text_input("E-mail do Responsável", value=item_data.get('responsavel_email', ''))
         new_co_responsavel = st.text_input("E-mail do Co-Responsável (Opcional)", value=item_data.get('co_responsavel_email', ''))
-        
         st.divider()
-        
-        uploaded_evidence = st.file_uploader(
-            "Anexar Evidência (Foto ou PDF)", 
-            type=['jpg', 'png', 'jpeg', 'pdf']
-        )
-        
+        uploaded_evidence = st.file_uploader("Anexar Evidência (Foto ou PDF)", type=['jpg', 'png', 'jpeg', 'pdf'])
         current_evidence_url = item_data.get('url_evidencia', '')
         if current_evidence_url:
             st.write("Evidência atual:")
             is_pdf = '.pdf' in current_evidence_url.lower()
-            
             if is_pdf:
                 st.markdown(f"📄 **[Ver PDF Anexado]({current_evidence_url})**")
             else:
                 thumb_url = convert_drive_url_to_displayable(current_evidence_url)
-                if thumb_url:
-                    st.image(thumb_url, width=200)
+                if thumb_url: st.image(thumb_url, width=200)
                 st.markdown(f"[Ver imagem completa]({current_evidence_url})")
-
         submitted = st.form_submit_button("Salvar Alterações")
-
         if submitted:
             with st.spinner("Salvando..."):
-                updates = {
-                    "status": new_status,
-                    "prazo_inicial": new_prazo.strftime("%d/%m/%Y") if new_prazo else "",
-                    "responsavel_email": new_responsavel,
-                    "co_responsavel_email": new_co_responsavel
-                }
+                updates = {"status": new_status, "prazo_inicial": new_prazo.strftime("%d/%m/%Y") if new_prazo else "",
+                           "responsavel_email": new_responsavel, "co_responsavel_email": new_co_responsavel}
                 if uploaded_evidence:
                     api_manager = GoogleApiManager()
                     safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
@@ -115,28 +107,20 @@ def edit_action_dialog(item_data):
                     file_name = f"evidencia_acao_{safe_action_id}.{file_extension}"
                     evidence_url = api_manager.upload_file(ACTION_PLAN_EVIDENCE_FOLDER_ID, uploaded_evidence, file_name)
                     if evidence_url:
-                        updates["url_evidencia"] = evidence_url
-                        st.toast("Evidência enviada com sucesso!")
+                        updates["url_evidencia"] = evidence_url; st.toast("Evidência enviada com sucesso!")
                     else:
-                        st.error("Falha ao enviar a evidência. As outras alterações não foram salvas.")
-                        return
+                        st.error("Falha ao enviar a evidência. As outras alterações não foram salvas."); return
                 if new_status == "Concluído" and item_data.get('status') != 'Concluído':
                     updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
-                
                 incident_manager = get_incident_manager()
                 if incident_manager.update_abrangencia_action(item_data['id'], updates):
                     st.success("Ação atualizada com sucesso!")
-                    if 'item_to_edit' in st.session_state:
-                        del st.session_state.item_to_edit
+                    if 'item_to_edit' in st.session_state: del st.session_state.item_to_edit
                     st.rerun()
-                else:
-                    st.error("Falha ao atualizar a ação.")
-
+                else: st.error("Falha ao atualizar a ação.")
 
 def prepare_history_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepara o DataFrame do histórico para exibição, processando a coluna de evidências."""
     history_df = df.copy()
-    
     history_df['foto_evidencia'] = history_df['url_evidencia'].apply(
         lambda url: convert_drive_url_to_displayable(url) if url and not url.lower().endswith('.pdf') else None
     )
@@ -146,7 +130,6 @@ def prepare_history_df(df: pd.DataFrame) -> pd.DataFrame:
     return history_df
 
 def show_plano_acao_page():
-    """Renderiza a página do Plano de Ação de Abrangência."""
     st.title("📋 Plano de Ação de Abrangência")
     check_permission(level='viewer')
 
@@ -224,10 +207,7 @@ def show_plano_acao_page():
 
     with st.expander("📖 Ver Histórico Completo em Tabela", expanded=False):
         st.info("Esta tabela mostra todos os itens do plano de ação com base nos filtros acima.")
-        
-        # Agora esta chamada funcionará sem erros
         history_df_prepared = prepare_history_df(filtered_df)
-        
         st.dataframe(
             history_df_prepared,
             column_config={
