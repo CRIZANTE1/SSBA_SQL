@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import logging
@@ -59,7 +58,7 @@ class IncidentManager:
         new_id = self.sheet_ops.adc_dados_aba("incidentes", new_incident_data)
         if new_id:
             logger.info(f"Incidente {new_id} adicionado com sucesso.")
-            st.cache_data.clear() # Limpa o cache para que os dados sejam recarregados
+            st.cache_data.clear()
         else:
             logger.error("Falha ao adicionar incidente na planilha.")
         return new_id
@@ -101,19 +100,25 @@ class IncidentManager:
     def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
         """
         Adiciona um novo registro na aba central 'plano_de_acao_abrangencia',
-        incluindo o co-responsável.
+        incluindo a nova coluna 'detalhes_conclusao' vazia.
         """
         logger.info(f"Adicionando ação de abrangência para a ação {id_acao_bloqueio} na unidade {unidade_operacional}.")
         prazo_str = prazo_inicial.strftime('%d/%m/%Y')
         co_resp_email_str = co_responsavel_email if co_responsavel_email else ""
+
+        # A ordem aqui deve corresponder exatamente à ordem das colunas na sua planilha
         new_action_data = [
             id_acao_bloqueio, 
             unidade_operacional, 
             responsavel_email, 
             co_resp_email_str,
             prazo_str, 
-            status
+            status,
+            "", # data_conclusao (inicialmente vazia)
+            "", # url_evidencia (inicialmente vazia)
+            ""  # detalhes_conclusao (inicialmente vazia)
         ]
+
         new_id = self.sheet_ops.adc_dados_aba("plano_de_acao_abrangencia", new_action_data)
         if new_id:
             logger.info(f"Ação de abrangência {new_id} adicionada com sucesso.")
@@ -161,22 +166,15 @@ class IncidentManager:
         )
         return set(merged_df['id_incidente'].unique())
 
-    def get_globally_pending_incidents(self, all_active_units: list[str]) -> pd.DataFrame:
+    def get_globally_pending_incidents(self, all_active_units: list[str], all_incidents_df: pd.DataFrame) -> pd.DataFrame:
         """
         Retorna um DataFrame de incidentes que ainda não foram abrangidos por TODAS
         as unidades operacionais ativas.
         """
-        all_incidents_df = self.get_all_incidents()
         action_plan_df = self.get_all_action_plans()
         blocking_actions_df = self.get_all_blocking_actions()
 
-        if all_incidents_df.empty:
-            return pd.DataFrame()
-
-        if not all_active_units:
-            return all_incidents_df
-
-        if action_plan_df.empty:
+        if all_incidents_df.empty or not all_active_units or action_plan_df.empty:
             return all_incidents_df
 
         if 'id_acao_bloqueio' not in action_plan_df.columns or 'id' not in blocking_actions_df.columns:
