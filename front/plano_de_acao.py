@@ -1,5 +1,3 @@
-# front/plano_de_acao.py
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -24,13 +22,11 @@ def load_action_plan_data():
     if action_plan_df.empty:
         return pd.DataFrame()
 
-    # --- CORREÇÃO NA LÓGICA DE MERGE E RENAME ---
-
-    # 1. Merge do plano de ação com as ações de bloqueio
-    # O 'id' do action_plan_df é o ID único que queremos manter.
-    # O 'id' do blocking_actions_df é o 'id_acao_bloqueio', então renomeamos antes do merge.
+    # Renomeia colunas de ID ANTES de fazer os merges para evitar conflitos
     blocking_actions_renamed = blocking_actions_df.rename(columns={'id': 'id_acao_bloqueio_ref'})
+    incidents_renamed = incidents_df.rename(columns={'id': 'id_incidente_ref'})
     
+    # 1. Merge do plano de ação com as ações de bloqueio
     merged_df = pd.merge(
         action_plan_df,
         blocking_actions_renamed[['id_acao_bloqueio_ref', 'descricao_acao', 'id_incidente']],
@@ -40,9 +36,6 @@ def load_action_plan_data():
     )
 
     # 2. Merge com os incidentes
-    # O 'id' do incidents_df é o 'id_incidente', então renomeamos antes do merge.
-    incidents_renamed = incidents_df.rename(columns={'id': 'id_incidente_ref'})
-    
     final_df = pd.merge(
         merged_df,
         incidents_renamed[['id_incidente_ref', 'evento_resumo']],
@@ -55,9 +48,11 @@ def load_action_plan_data():
     final_df['descricao_acao'] = final_df['descricao_acao'].fillna('Descrição da ação não encontrada')
     final_df['evento_resumo'] = final_df['evento_resumo'].fillna('Incidente original não encontrado')
     
-    if 'url_evidencia' not in final_df.columns:
-        final_df['url_evidencia'] = ''
-    final_df['url_evidencia'] = final_df['url_evidencia'].fillna('')
+    # Garante que as colunas opcionais existam no DataFrame
+    for col in ['url_evidencia', 'detalhes_conclusao']:
+        if col not in final_df.columns:
+            final_df[col] = ''
+        final_df[col] = final_df[col].fillna('')
 
     # Remove colunas de referência que não são mais necessárias
     final_df = final_df.drop(columns=['id_acao_bloqueio_ref', 'id_incidente_ref'], errors='ignore')
@@ -67,23 +62,37 @@ def load_action_plan_data():
 
 @st.dialog("Editar Ação de Abrangência")
 def edit_action_dialog(item_data):
+    """Renderiza um formulário em um diálogo para editar um item do plano de ação."""
     st.subheader("Item: " + item_data.get('descricao_acao', ''))
     st.caption("Incidente Original: " + item_data.get('evento_resumo', ''))
+    
     prazo_atual = None
     if item_data.get('prazo_inicial') and isinstance(item_data['prazo_inicial'], str):
         try:
             prazo_atual = datetime.strptime(item_data['prazo_inicial'], "%d/%m/%Y").date()
         except (ValueError, TypeError): pass
+
     with st.form("edit_action_form"):
         status_options = ["Pendente", "Em Andamento", "Concluído", "Cancelado"]
         try:
             current_status_index = status_options.index(item_data.get('status', 'Pendente'))
         except ValueError: current_status_index = 0
+        
         new_status = st.selectbox("Status", status_options, index=current_status_index)
+        
+        detalhes_conclusao = st.text_area(
+            "Detalhes da Ação / O que foi feito?",
+            value=item_data.get('detalhes_conclusao', ''),
+            help="Descreva a ação realizada para concluir esta tarefa. Ficará registrado no histórico."
+        )
+        st.divider()
+
         new_prazo = st.date_input("Prazo para Implementação", value=prazo_atual)
         new_responsavel = st.text_input("E-mail do Responsável", value=item_data.get('responsavel_email', ''))
         new_co_responsavel = st.text_input("E-mail do Co-Responsável (Opcional)", value=item_data.get('co_responsavel_email', ''))
+        
         st.divider()
+        
         uploaded_evidence = st.file_uploader("Anexar Evidência (Foto ou PDF)", type=['jpg', 'png', 'jpeg', 'pdf'])
         current_evidence_url = item_data.get('url_evidencia', '')
         if current_evidence_url:
@@ -95,11 +104,22 @@ def edit_action_dialog(item_data):
                 thumb_url = convert_drive_url_to_displayable(current_evidence_url)
                 if thumb_url: st.image(thumb_url, width=200)
                 st.markdown(f"[Ver imagem completa]({current_evidence_url})")
+
         submitted = st.form_submit_button("Salvar Alterações")
+
         if submitted:
+            if new_status == "Concluído" and not detalhes_conclusao.strip():
+                st.error("Para marcar como 'Concluído', é obrigatório preencher o campo 'Detalhes da Ação'.")
+                return
+
             with st.spinner("Salvando..."):
-                updates = {"status": new_status, "prazo_inicial": new_prazo.strftime("%d/%m/%Y") if new_prazo else "",
-                           "responsavel_email": new_responsavel, "co_responsavel_email": new_co_responsavel}
+                updates = {
+                    "status": new_status,
+                    "prazo_inicial": new_prazo.strftime("%d/%m/%Y") if new_prazo else "",
+                    "responsavel_email": new_responsavel,
+                    "co_responsavel_email": new_co_responsavel,
+                    "detalhes_conclusao": detalhes_conclusao
+                }
                 if uploaded_evidence:
                     api_manager = GoogleApiManager()
                     safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
@@ -112,6 +132,7 @@ def edit_action_dialog(item_data):
                         st.error("Falha ao enviar a evidência. As outras alterações não foram salvas."); return
                 if new_status == "Concluído" and item_data.get('status') != 'Concluído':
                     updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
+                
                 incident_manager = get_incident_manager()
                 if incident_manager.update_abrangencia_action(item_data['id'], updates):
                     st.success("Ação atualizada com sucesso!")
@@ -120,6 +141,7 @@ def edit_action_dialog(item_data):
                 else: st.error("Falha ao atualizar a ação.")
 
 def prepare_history_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Prepara o DataFrame do histórico para exibição, processando a coluna de evidências."""
     history_df = df.copy()
     history_df['foto_evidencia'] = history_df['url_evidencia'].apply(
         lambda url: convert_drive_url_to_displayable(url) if url and not url.lower().endswith('.pdf') else None
@@ -130,6 +152,7 @@ def prepare_history_df(df: pd.DataFrame) -> pd.DataFrame:
     return history_df
 
 def show_plano_acao_page():
+    """Renderiza a página do Plano de Ação de Abrangência."""
     st.title("📋 Plano de Ação de Abrangência")
     check_permission(level='viewer')
 
@@ -160,22 +183,22 @@ def show_plano_acao_page():
     st.divider()
 
     if filtered_df.empty:
-        st.info("Nenhum item encontrado com os filtros selecionados.")
-        st.stop()
+        st.info("Nenhum item encontrado com os filtros selecionados."); st.stop()
 
     st.subheader("Visão por Cards")
     total_pending = len(filtered_df[~filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])])
     st.metric("Total de Ações Abertas (na visão atual)", total_pending)
     is_editor_or_admin = get_user_role() in ['editor', 'admin']
+
     for incident_id, group in filtered_df.groupby('id_incidente'):
         incident_resumo = group['evento_resumo'].iloc[0]
         total_actions_in_group = len(group)
         completed_actions = len(group[group['status'].str.lower().isin(['concluído', 'cancelado'])])
         expander_title = f"**{incident_resumo}** (`{completed_actions}/{total_actions_in_group}` concluídas)"
+
         with st.expander(expander_title, expanded=True):
             for _, row in group.iterrows():
-                is_overdue = False
-                status = row['status']
+                is_overdue = False; status = row['status']
                 if status.lower() in ['pendente', 'em andamento']:
                     try:
                         prazo_dt = datetime.strptime(row['prazo_inicial'], "%d/%m/%Y").date()
@@ -190,10 +213,14 @@ def show_plano_acao_page():
                         st.caption(f"**Responsável:** {row.get('responsavel_email', 'N/A')}")
                         evidence_url = row.get('url_evidencia', '')
                         if evidence_url:
-                            is_pdf = '.pdf' in evidence_url.lower()
-                            icon = "📄" if is_pdf else "🖼️"
+                            is_pdf = '.pdf' in evidence_url.lower(); icon = "📄" if is_pdf else "🖼️"
                             label = "Ver Evidência PDF" if is_pdf else "Ver Foto da Evidência"
                             st.markdown(f"**[{label} {icon}]({evidence_url})**")
+                        
+                        detalhes = row.get('detalhes_conclusao', '')
+                        if detalhes:
+                            with st.popover("Ver Detalhes da Ação"):
+                                st.markdown(detalhes)
                     with col2:
                         if status == "Pendente": st.warning(f"**Status:** {status}")
                         elif status == "Em Andamento": st.info(f"**Status:** {status}")
@@ -215,18 +242,16 @@ def show_plano_acao_page():
                 "unidade_operacional": st.column_config.TextColumn("UO", width="small"),
                 "evento_resumo": st.column_config.TextColumn("Incidente Original", width="medium"),
                 "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", width="large"),
-                "status": "Status",
-                "responsavel_email": st.column_config.TextColumn("Responsável", width="medium"),
-                "prazo_inicial": "Prazo",
-                "data_conclusao": "Conclusão",
+                "detalhes_conclusao": "Detalhes da Ação",
+                "status": "Status", "responsavel_email": st.column_config.TextColumn("Responsável", width="medium"),
+                "prazo_inicial": "Prazo", "data_conclusao": "Conclusão",
                 "foto_evidencia": st.column_config.ImageColumn("Foto Evidência", help="Thumbnail da foto anexada"),
                 "pdf_evidencia": st.column_config.LinkColumn("PDF Evidência", help="Link para o PDF anexado", display_text="📄 Ver PDF"),
             },
             column_order=[
-                "unidade_operacional", "evento_resumo", "descricao_acao", "status", 
+                "unidade_operacional", "evento_resumo", "descricao_acao", "detalhes_conclusao", "status", 
                 "responsavel_email", "prazo_inicial", "data_conclusao", 
                 "foto_evidencia", "pdf_evidencia"
             ],
-            hide_index=True,
-            width='stretch'
+            hide_index=True, width='stretch'
         )
