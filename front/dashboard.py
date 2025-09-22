@@ -24,8 +24,8 @@ def convert_drive_url_to_displayable(url: str) -> str | None:
 @st.dialog("Análise de Abrangência do Incidente", width="large")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     """
-    Renderiza um diálogo modal com um formulário dinâmico, permitindo a atribuição
-    de responsáveis e prazos individuais para cada ação selecionada.
+    Renderiza um diálogo modal com um formulário dinâmico, permitindo a seleção
+    de responsáveis a partir de uma lista e a atribuição de prazos individuais.
     """
     st.subheader(incident.get('evento_resumo'))
     st.caption(f"Alerta: {incident.get('numero_alerta')} | Data: {pd.to_datetime(incident.get('data_evento'), dayfirst=True).strftime('%d/%m/%Y')}")
@@ -49,10 +49,20 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
 
     def force_fragment_rerun():
         pass
+    
+    # Carrega a lista de usuários da aba 'utilities'
+    matrix_manager = get_matrix_manager()
+    user_map, user_names = matrix_manager.get_utilities_users()
+    
+    if not user_names:
+        st.warning("A lista de responsáveis (aba 'utilities') não pôde ser carregada ou está vazia.")
+        # Define valores padrão para evitar erros
+        user_names = ["(Lista de usuários vazia)"]
+        user_map = {}
 
+    # Lógica para Admin Global selecionar a UO de destino
     is_admin = st.session_state.get('unit_name') == 'Global'
     if is_admin:
-        matrix_manager = get_matrix_manager()
         all_units = matrix_manager.get_all_units()
         options = ["-- Digitar nome da UO --"] + all_units
         chosen_option = st.selectbox("Selecione a Unidade Operacional (UO) de destino", options=options, key="admin_uo_selector")
@@ -61,6 +71,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     
     st.markdown("---")
 
+    # Renderiza os toggles para ativar/desativar ações
     for _, action in blocking_actions.iterrows():
         st.toggle(
             action['descricao_acao'],
@@ -70,6 +81,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     
     st.divider()
 
+    # Formulário para preencher os dados das ações ativadas
     with st.form("abrangencia_form_data"):
         st.markdown("**Preencha os dados para as ações ativadas acima:**")
         
@@ -84,15 +96,37 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
             
             col_resp, col_co_resp, col_prazo = st.columns([2, 2, 1])
             with col_resp:
-                st.text_input("Responsável", value=st.session_state.get('user_info', {}).get('email', ''), key=f"resp_{action_id}", disabled=not is_enabled, label_visibility="collapsed")
+                st.selectbox(
+                    "Responsável", 
+                    options=user_names, 
+                    index=None, 
+                    placeholder="Selecione um nome...",
+                    key=f"resp_{action_id}", 
+                    disabled=not is_enabled or not user_names, 
+                    label_visibility="collapsed"
+                )
             with col_co_resp:
-                st.text_input("Co-responsável", key=f"co_resp_{action_id}", disabled=not is_enabled, label_visibility="collapsed")
+                st.selectbox(
+                    "Co-responsável", 
+                    options=["(Nenhum)"] + user_names, 
+                    index=0,
+                    key=f"co_resp_{action_id}", 
+                    disabled=not is_enabled or not user_names, 
+                    label_visibility="collapsed"
+                )
             with col_prazo:
-                st.date_input("Prazo", min_value=date.today(), key=f"prazo_{action_id}", disabled=not is_enabled, label_visibility="collapsed")
+                st.date_input(
+                    "Prazo", 
+                    min_value=date.today(), 
+                    key=f"prazo_{action_id}", 
+                    disabled=not is_enabled, 
+                    label_visibility="collapsed"
+                )
         
         submitted = st.form_submit_button("Registrar Plano de Ação", type="primary")
 
     if submitted:
+        # Define a unidade de destino
         unit_to_save = None
         if is_admin:
             if st.session_state.admin_uo_selector == "-- Digitar nome da UO --":
@@ -105,18 +139,28 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         else:
             unit_to_save = st.session_state.unit_name
 
+        # Coleta os dados das ações ativadas
         actions_to_save = []
         for _, action in blocking_actions.iterrows():
             action_id = action['id']
             if st.session_state.get(f"toggle_{action_id}", False):
-                responsavel = st.session_state[f"resp_{action_id}"]
-                if not responsavel:
-                    st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável preenchido.")
+                responsavel_nome = st.session_state[f"resp_{action_id}"]
+                co_responsavel_nome = st.session_state[f"co_resp_{action_id}"]
+                
+                if not responsavel_nome:
+                    st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável Principal.")
                     return
+                
+                # Converte os nomes selecionados para e-mails usando o dicionário
+                responsavel_email = user_map.get(responsavel_nome)
+                co_responsavel_email = user_map.get(co_responsavel_nome) if co_responsavel_nome != "(Nenhum)" else ""
+                
                 actions_to_save.append({
-                    "id_acao_bloqueio": action_id, "descricao": action['descricao_acao'],
-                    "unidade_operacional": unit_to_save, "responsavel_email": responsavel,
-                    "co_responsavel_email": st.session_state[f"co_resp_{action_id}"],
+                    "id_acao_bloqueio": action_id, 
+                    "descricao": action['descricao_acao'], 
+                    "unidade_operacional": unit_to_save,
+                    "responsavel_email": responsavel_email, 
+                    "co_responsavel_email": co_responsavel_email,
                     "prazo_inicial": st.session_state[f"prazo_{action_id}"]
                 })
         
@@ -124,25 +168,27 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
             st.warning("Nenhuma ação foi selecionada. Ative uma ou mais ações para salvar.")
             return
 
+        # Salva os dados na planilha
         saved_count = 0
         with st.spinner(f"Salvando {len(actions_to_save)} ação(ões) para a UO: {unit_to_save}..."):
             for action_data in actions_to_save:
                 new_id = incident_manager.add_abrangencia_action(
-                    id_acao_bloqueio=action_data['id_acao_bloqueio'], unidade_operacional=action_data['unidade_operacional'],
-                    responsavel_email=action_data['responsavel_email'], co_responsavel_email=action_data['co_responsavel_email'],
-                    prazo_inicial=action_data['prazo_inicial'], status="Pendente"
+                    id_acao_bloqueio=action_data['id_acao_bloqueio'], 
+                    unidade_operacional=action_data['unidade_operacional'],
+                    responsavel_email=action_data['responsavel_email'], 
+                    co_responsavel_email=action_data['co_responsavel_email'],
+                    prazo_inicial=action_data['prazo_inicial'], 
+                    status="Pendente"
                 )
                 if new_id:
                     saved_count += 1
                     log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": action_data['descricao'], "target_unit": unit_to_save})
         
         st.success(f"{saved_count} ação(ões) salvas com sucesso!")
-        #st.balloons()
         import time
         time.sleep(2)
         st.rerun()
 
-# --- O RESTANTE DO ARQUIVO PERMANECE IGUAL ---
 
 def render_incident_card(incident, col, incident_manager, is_pending):
     """Função auxiliar para renderizar um card de incidente."""
