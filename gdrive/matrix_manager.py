@@ -30,6 +30,25 @@ class MatrixManager:
         logger.info(f"Carregando dados da aba '{sheet_name}' (pode usar cache)...")
         return _self.sheet_ops.get_df_from_worksheet(sheet_name)
 
+    @st.cache_data(ttl=300)
+    def get_utilities_users(_self) -> dict:
+        """
+        Carrega os usuários da aba 'utilities' e retorna um dicionário
+        mapeando nome para e-mail e uma lista de nomes.
+        """
+        utilities_df = _self._get_df("utilities")
+        if utilities_df.empty or 'nome' not in utilities_df.columns or 'email' not in utilities_df.columns:
+            return {}, []
+        
+        utilities_df.dropna(subset=['nome', 'email'], inplace=True)
+        utilities_df = utilities_df[utilities_df['nome'].str.strip() != '']
+
+        user_map = pd.Series(utilities_df.email.values, index=utilities_df.nome).to_dict()
+        
+        user_names = sorted(utilities_df['nome'].tolist())
+        
+        return user_map, user_names
+
     # --- Métodos de Usuários ---
 
     def get_all_users_df(self) -> pd.DataFrame:
