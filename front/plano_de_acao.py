@@ -132,6 +132,19 @@ def edit_action_dialog(item_data):
                 else:
                     st.error("Falha ao atualizar a ação.")
 
+
+def prepare_history_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Prepara o DataFrame do histórico para exibição, processando a coluna de evidências."""
+    history_df = df.copy()
+    
+    history_df['foto_evidencia'] = history_df['url_evidencia'].apply(
+        lambda url: convert_drive_url_to_displayable(url) if url and not url.lower().endswith('.pdf') else None
+    )
+    history_df['pdf_evidencia'] = history_df['url_evidencia'].apply(
+        lambda url: url if url and url.lower().endswith('.pdf') else None
+    )
+    return history_df
+
 def show_plano_acao_page():
     """Renderiza a página do Plano de Ação de Abrangência."""
     st.title("📋 Plano de Ação de Abrangência")
@@ -148,17 +161,15 @@ def show_plano_acao_page():
         unit_options = ["Todas"] + sorted(full_action_plan_df['unidade_operacional'].unique().tolist()) if not full_action_plan_df.empty else ["Todas"]
         user_unit = st.session_state.get('unit_name', 'Global')
         default_index = 0
-        if user_unit != 'Global' and user_unit in unit_options:
-            default_index = unit_options.index(user_unit)
+        if user_unit != 'Global' and user_unit in unit_options: default_index = unit_options.index(user_unit)
         selected_unit = st.selectbox("Filtrar por Unidade Operacional:", options=unit_options, index=default_index)
     with col2:
         status_options = ["Todos", "Pendentes", "Concluídos"]
         selected_status_filter = st.selectbox("Filtrar por Status:", options=status_options)
-
+    
     filtered_df = full_action_plan_df.copy()
     if selected_unit != "Todas":
         filtered_df = filtered_df[filtered_df['unidade_operacional'] == selected_unit]
-    
     if selected_status_filter == "Pendentes":
         filtered_df = filtered_df[~filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])]
     elif selected_status_filter == "Concluídos":
@@ -169,20 +180,15 @@ def show_plano_acao_page():
         st.info("Nenhum item encontrado com os filtros selecionados.")
         st.stop()
 
+    st.subheader("Visão por Cards")
     total_pending = len(filtered_df[~filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])])
     st.metric("Total de Ações Abertas (na visão atual)", total_pending)
-
     is_editor_or_admin = get_user_role() in ['editor', 'admin']
-    
-    # Agrupa o DataFrame filtrado pelo ID do incidente
     for incident_id, group in filtered_df.groupby('id_incidente'):
         incident_resumo = group['evento_resumo'].iloc[0]
-        
         total_actions_in_group = len(group)
         completed_actions = len(group[group['status'].str.lower().isin(['concluído', 'cancelado'])])
-        
         expander_title = f"**{incident_resumo}** (`{completed_actions}/{total_actions_in_group}` concluídas)"
-
         with st.expander(expander_title, expanded=True):
             for _, row in group.iterrows():
                 is_overdue = False
@@ -190,45 +196,36 @@ def show_plano_acao_page():
                 if status.lower() in ['pendente', 'em andamento']:
                     try:
                         prazo_dt = datetime.strptime(row['prazo_inicial'], "%d/%m/%Y").date()
-                        if prazo_dt < date.today():
-                            is_overdue = True
-                    except (ValueError, TypeError):
-                        pass
-
+                        if prazo_dt < date.today(): is_overdue = True
+                    except (ValueError, TypeError): pass
                 container_border_color = "#FF4B4B" if is_overdue else True
-                
                 with st.container(border=container_border_color):
                     col1, col2, col3 = st.columns([4, 2, 1])
                     with col1:
                         overdue_icon = "⚠️ " if is_overdue else ""
                         st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
                         st.caption(f"**Responsável:** {row.get('responsavel_email', 'N/A')}")
-                        
                         evidence_url = row.get('url_evidencia', '')
                         if evidence_url:
                             is_pdf = '.pdf' in evidence_url.lower()
                             icon = "📄" if is_pdf else "🖼️"
                             label = "Ver Evidência PDF" if is_pdf else "Ver Foto da Evidência"
                             st.markdown(f"**[{label} {icon}]({evidence_url})**")
-
                     with col2:
                         if status == "Pendente": st.warning(f"**Status:** {status}")
                         elif status == "Em Andamento": st.info(f"**Status:** {status}")
                         else: st.success(f"**Status:** {status}")
                         st.write(f"**Prazo:** {row['prazo_inicial']}")
-
                     with col3:
                         if is_editor_or_admin:
-                            def set_item_to_edit(item_row):
-                                st.session_state.item_to_edit = item_row.to_dict()
+                            def set_item_to_edit(item_row): st.session_state.item_to_edit = item_row.to_dict()
                             st.button("Editar", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
-
     st.divider()
 
     with st.expander("📖 Ver Histórico Completo em Tabela", expanded=False):
-        st.info("Esta tabela mostra todos os itens do plano de ação com base nos filtros acima. As edições devem ser feitas nos cards.")
+        st.info("Esta tabela mostra todos os itens do plano de ação com base nos filtros acima.")
         
-        # Prepara o DataFrame para exibição
+        # Agora esta chamada funcionará sem erros
         history_df_prepared = prepare_history_df(filtered_df)
         
         st.dataframe(
