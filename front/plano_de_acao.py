@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -44,7 +43,6 @@ def load_action_plan_data():
         final_df = merged_df.rename(columns={'id_plan': 'id'})
         final_df['evento_resumo'] = "Incidente original não encontrado"
 
-    # <<< CORREÇÕES APLICADAS AQUI (removido inplace=True) >>>
     final_df['descricao_acao'] = final_df['descricao_acao'].fillna('Descrição da ação não encontrada')
     final_df['evento_resumo'] = final_df['evento_resumo'].fillna('Incidente original não encontrado')
     
@@ -57,6 +55,7 @@ def load_action_plan_data():
 
 @st.dialog("Editar Ação de Abrangência")
 def edit_action_dialog(item_data):
+    """Renderiza um formulário em um diálogo para editar um item do plano de ação."""
     st.subheader("Item: " + item_data.get('descricao_acao', ''))
     st.caption("Incidente Original: " + item_data.get('evento_resumo', ''))
     
@@ -80,14 +79,24 @@ def edit_action_dialog(item_data):
         new_co_responsavel = st.text_input("E-mail do Co-Responsável (Opcional)", value=item_data.get('co_responsavel_email', ''))
         
         st.divider()
-        uploaded_evidence = st.file_uploader("Anexar Foto de Evidência (Opcional)", type=['jpg', 'png', 'jpeg'])
         
-        if item_data.get('url_evidencia'):
+        uploaded_evidence = st.file_uploader(
+            "Anexar Evidência (Foto ou PDF)", 
+            type=['jpg', 'png', 'jpeg', 'pdf']
+        )
+        
+        current_evidence_url = item_data.get('url_evidencia', '')
+        if current_evidence_url:
             st.write("Evidência atual:")
-            thumb_url = convert_drive_url_to_displayable(item_data['url_evidencia'])
-            if thumb_url:
-                st.image(thumb_url, width=200)
-            st.markdown(f"[Ver imagem completa]({item_data['url_evidencia']})")
+            is_pdf = '.pdf' in current_evidence_url.lower()
+            
+            if is_pdf:
+                st.markdown(f"📄 **[Ver PDF Anexado]({current_evidence_url})**")
+            else:
+                thumb_url = convert_drive_url_to_displayable(current_evidence_url)
+                if thumb_url:
+                    st.image(thumb_url, width=200)
+                st.markdown(f"[Ver imagem completa]({current_evidence_url})")
 
         submitted = st.form_submit_button("Salvar Alterações")
 
@@ -102,13 +111,14 @@ def edit_action_dialog(item_data):
                 if uploaded_evidence:
                     api_manager = GoogleApiManager()
                     safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
-                    file_name = f"evidencia_acao_{safe_action_id}.{uploaded_evidence.name.split('.')[-1]}"
+                    file_extension = uploaded_evidence.name.split('.')[-1]
+                    file_name = f"evidencia_acao_{safe_action_id}.{file_extension}"
                     evidence_url = api_manager.upload_file(ACTION_PLAN_EVIDENCE_FOLDER_ID, uploaded_evidence, file_name)
                     if evidence_url:
                         updates["url_evidencia"] = evidence_url
                         st.toast("Evidência enviada com sucesso!")
                     else:
-                        st.error("Falha ao enviar a foto de evidência. As outras alterações não foram salvas.")
+                        st.error("Falha ao enviar a evidência. As outras alterações não foram salvas.")
                         return
                 if new_status == "Concluído" and item_data.get('status') != 'Concluído':
                     updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
@@ -123,6 +133,7 @@ def edit_action_dialog(item_data):
                     st.error("Falha ao atualizar a ação.")
 
 def show_plano_acao_page():
+    """Renderiza a página do Plano de Ação de Abrangência."""
     st.title("📋 Plano de Ação de Abrangência")
     check_permission(level='viewer')
 
@@ -152,7 +163,6 @@ def show_plano_acao_page():
         filtered_df = filtered_df[~filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])]
     elif selected_status_filter == "Concluídos":
         filtered_df = filtered_df[filtered_df['status'].str.lower().isin(['concluído', 'cancelado'])]
-
     st.divider()
 
     if filtered_df.empty:
@@ -164,42 +174,51 @@ def show_plano_acao_page():
 
     is_editor_or_admin = get_user_role() in ['editor', 'admin']
     
-    filtered_df['status_order'] = filtered_df['status'].apply(lambda x: 0 if x == 'Pendente' else 1 if x == 'Em Andamento' else 2)
-    sorted_df = filtered_df.sort_values(by='status_order')
-
-    for _, row in sorted_df.iterrows():
-        is_overdue = False
-        status = row['status']
-        if status.lower() in ['pendente', 'em andamento']:
-            try:
-                prazo_dt = datetime.strptime(row['prazo_inicial'], "%d/%m/%Y").date()
-                if prazo_dt < date.today():
-                    is_overdue = True
-            except (ValueError, TypeError):
-                pass
-
-        container_border_color = "#FF4B4B" if is_overdue else True
+    # Agrupa o DataFrame filtrado pelo ID do incidente
+    for incident_id, group in filtered_df.groupby('id_incidente'):
+        incident_resumo = group['evento_resumo'].iloc[0]
         
-        with st.container(border=container_border_color):
-            col1, col2, col3 = st.columns([4, 2, 1])
-            
-            with col1:
-                overdue_icon = "⚠️ " if is_overdue else ""
-                st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
-                st.caption(f"**UO:** {row['unidade_operacional']} | **Incidente:** {row['evento_resumo']}")
+        total_actions_in_group = len(group)
+        completed_actions = len(group[group['status'].str.lower().isin(['concluído', 'cancelado'])])
+        
+        expander_title = f"**{incident_resumo}** (`{completed_actions}/{total_actions_in_group}` concluídas)"
+
+        with st.expander(expander_title, expanded=True):
+            for _, row in group.iterrows():
+                is_overdue = False
+                status = row['status']
+                if status.lower() in ['pendente', 'em andamento']:
+                    try:
+                        prazo_dt = datetime.strptime(row['prazo_inicial'], "%d/%m/%Y").date()
+                        if prazo_dt < date.today():
+                            is_overdue = True
+                    except (ValueError, TypeError):
+                        pass
+
+                container_border_color = "#FF4B4B" if is_overdue else True
                 
-                if row.get('url_evidencia'):
-                    st.markdown(f" bukti [Ver Evidência]({row['url_evidencia']})", unsafe_allow_html=True)
+                with st.container(border=container_border_color):
+                    col1, col2, col3 = st.columns([4, 2, 1])
+                    with col1:
+                        overdue_icon = "⚠️ " if is_overdue else ""
+                        st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
+                        st.caption(f"**Responsável:** {row.get('responsavel_email', 'N/A')}")
+                        
+                        evidence_url = row.get('url_evidencia', '')
+                        if evidence_url:
+                            is_pdf = '.pdf' in evidence_url.lower()
+                            icon = "📄" if is_pdf else "🖼️"
+                            label = "Ver Evidência PDF" if is_pdf else "Ver Foto da Evidência"
+                            st.markdown(f"**[{label} {icon}]({evidence_url})**")
 
-            with col2:
-                if status == "Pendente": st.warning(f"**Status:** {status}")
-                elif status == "Em Andamento": st.info(f"**Status:** {status}")
-                else: st.success(f"**Status:** {status}")
-                st.write(f"**Prazo:** {row['prazo_inicial']}")
+                    with col2:
+                        if status == "Pendente": st.warning(f"**Status:** {status}")
+                        elif status == "Em Andamento": st.info(f"**Status:** {status}")
+                        else: st.success(f"**Status:** {status}")
+                        st.write(f"**Prazo:** {row['prazo_inicial']}")
 
-            with col3:
-                if is_editor_or_admin:
-                    def set_item_to_edit(item_row):
-                        st.session_state.item_to_edit = item_row.to_dict()
-
-                    st.button("Editar Ação", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
+                    with col3:
+                        if is_editor_or_admin:
+                            def set_item_to_edit(item_row):
+                                st.session_state.item_to_edit = item_row.to_dict()
+                            st.button("Editar", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
