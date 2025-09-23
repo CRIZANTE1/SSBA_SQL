@@ -152,7 +152,6 @@ def prepare_history_df(df: pd.DataFrame) -> pd.DataFrame:
     return history_df
 
 def show_plano_acao_page():
-    """Renderiza a página do Plano de Ação de Abrangência."""
     st.title("📋 Plano de Ação de Abrangência")
     check_permission(level='viewer')
 
@@ -190,6 +189,15 @@ def show_plano_acao_page():
     st.metric("Total de Ações Abertas (na visão atual)", total_pending)
     is_editor_or_admin = get_user_role() in ['editor', 'admin']
 
+    st.markdown("""
+    <style>
+        .overdue-container > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div {
+            border-color: #FF4B4B !important;
+            border-width: 2px !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     for incident_id, group in filtered_df.groupby('id_incidente'):
         incident_resumo = group['evento_resumo'].iloc[0]
         total_actions_in_group = len(group)
@@ -204,32 +212,35 @@ def show_plano_acao_page():
                         prazo_dt = datetime.strptime(row['prazo_inicial'], "%d/%m/%Y").date()
                         if prazo_dt < date.today(): is_overdue = True
                     except (ValueError, TypeError): pass
-                container_border_color = "#FF4B4B" if is_overdue else True
-                with st.container(border=container_border_color):
-                    col1, col2, col3 = st.columns([4, 2, 1])
-                    with col1:
-                        overdue_icon = "⚠️ " if is_overdue else ""
-                        st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
-                        st.caption(f"**Responsável:** {row.get('responsavel_email', 'N/A')}")
-                        evidence_url = row.get('url_evidencia', '')
-                        if evidence_url:
-                            is_pdf = '.pdf' in evidence_url.lower(); icon = "📄" if is_pdf else "🖼️"
-                            label = "Ver Evidência PDF" if is_pdf else "Ver Foto da Evidência"
-                            st.markdown(f"**[{label} {icon}]({evidence_url})**")
-                        
-                        detalhes = row.get('detalhes_conclusao', '')
-                        if detalhes:
-                            with st.popover("Ver Detalhes da Ação"):
-                                st.markdown(detalhes)
-                    with col2:
-                        if status == "Pendente": st.warning(f"**Status:** {status}")
-                        elif status == "Em Andamento": st.info(f"**Status:** {status}")
-                        else: st.success(f"**Status:** {status}")
-                        st.write(f"**Prazo:** {row['prazo_inicial']}")
-                    with col3:
-                        if is_editor_or_admin:
-                            def set_item_to_edit(item_row): st.session_state.item_to_edit = item_row.to_dict()
-                            st.button("Editar", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
+                
+                # Usa um container normal, mas o envolvemos em um div com a classe CSS se estiver atrasado
+                container_class = "overdue-container" if is_overdue else ""
+                with st.html(f"<div class='{container_class}'>"):
+                    with st.container(border=True):
+                        col1, col2, col3 = st.columns([4, 2, 1])
+                        with col1:
+                            overdue_icon = "⚠️ " if is_overdue else ""
+                            st.markdown(f"**Ação:** {overdue_icon}{row['descricao_acao']}")
+                            st.caption(f"**Responsável:** {row.get('responsavel_email', 'N/A')}")
+                            evidence_url = row.get('url_evidencia', '')
+                            if evidence_url:
+                                is_pdf = '.pdf' in evidence_url.lower(); icon = "📄" if is_pdf else "🖼️"
+                                label = "Ver Evidência PDF" if is_pdf else "Ver Foto da Evidência"
+                                st.markdown(f"**[{label} {icon}]({evidence_url})**")
+                            
+                            detalhes = row.get('detalhes_conclusao', '')
+                            if detalhes:
+                                with st.popover("Ver Detalhes da Ação"):
+                                    st.markdown(detalhes)
+                        with col2:
+                            if status == "Pendente": st.warning(f"**Status:** {status}")
+                            elif status == "Em Andamento": st.info(f"**Status:** {status}")
+                            else: st.success(f"**Status:** {status}")
+                            st.write(f"**Prazo:** {row['prazo_inicial']}")
+                        with col3:
+                            if is_editor_or_admin:
+                                def set_item_to_edit(item_row): st.session_state.item_to_edit = item_row.to_dict()
+                                st.button("Editar", key=f"edit_{row['id']}", on_click=set_item_to_edit, args=(row,), width='stretch')
     st.divider()
 
     with st.expander("📖 Ver Histórico Completo em Tabela", expanded=False):
@@ -240,18 +251,15 @@ def show_plano_acao_page():
             column_config={
                 "id": None, "id_acao_bloqueio": None, "id_incidente": None, "url_evidencia": None,
                 "unidade_operacional": st.column_config.TextColumn("UO", width="small"),
-                "evento_resumo": st.column_config.TextColumn("Incidente Original", width="medium"),
+                "evento_resumo": st.column_config.TextColumn("Incidente Original"),
                 "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", width="large"),
                 "detalhes_conclusao": "Detalhes da Ação",
-                "status": "Status", "responsavel_email": st.column_config.TextColumn("Responsável", width="medium"),
+                "status": "Status", "responsavel_email": st.column_config.TextColumn("Responsável"),
                 "prazo_inicial": "Prazo", "data_conclusao": "Conclusão",
-                "foto_evidencia": st.column_config.ImageColumn("Foto Evidência", help="Thumbnail da foto anexada"),
-                "pdf_evidencia": st.column_config.LinkColumn("PDF Evidência", help="Link para o PDF anexado", display_text="📄 Ver PDF"),
+                "foto_evidencia": st.column_config.ImageColumn("Foto Evidência"),
+                "pdf_evidencia": st.column_config.LinkColumn("PDF Evidência", display_text="📄 Ver PDF"),
             },
-            column_order=[
-                "unidade_operacional", "evento_resumo", "descricao_acao", "detalhes_conclusao", "status", 
-                "responsavel_email", "prazo_inicial", "data_conclusao", 
-                "foto_evidencia", "pdf_evidencia"
-            ],
+            column_order=[ "unidade_operacional", "evento_resumo", "descricao_acao", "detalhes_conclusao", "status", 
+                "responsavel_email", "prazo_inicial", "data_conclusao", "foto_evidencia", "pdf_evidencia" ],
             hide_index=True, width='stretch'
         )
