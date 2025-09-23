@@ -155,11 +155,19 @@ def show_plano_acao_page():
     st.title("📋 Plano de Ação de Abrangência")
     check_permission(level='viewer')
 
-    if 'item_to_edit' in st.session_state:
+    # <<< CORREÇÃO APLICADA AQUI >>>
+    # 1. Verifica se o diálogo deve ser aberto
+    if st.session_state.get('item_to_edit'):
         edit_action_dialog(st.session_state.item_to_edit)
+        # 2. Se o diálogo foi fechado (com sucesso ou pelo X), limpa o estado
+        if st.session_state.get('dialog_closed', False):
+            del st.session_state.item_to_edit
+            del st.session_state.dialog_closed
+            st.rerun() # Força um rerun para garantir que a página reflita o estado limpo
 
     full_action_plan_df = load_action_plan_data()
 
+    # (Lógica de filtros)
     st.subheader("Filtros de Visualização")
     col1, col2 = st.columns(2)
     with col1:
@@ -189,14 +197,9 @@ def show_plano_acao_page():
     st.metric("Total de Ações Abertas (na visão atual)", total_pending)
     is_editor_or_admin = get_user_role() in ['editor', 'admin']
 
-    st.markdown("""
-    <style>
-        .overdue-container > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div {
-            border-color: #FF4B4B !important;
-            border-width: 2px !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    # (CSS para borda vermelha)
+    st.markdown("""<style>.overdue-container > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlockBorderWrapper"] > div {
+        border-color: #FF4B4B !important; border-width: 2px !important;}</style>""", unsafe_allow_html=True)
 
     for incident_id, group in filtered_df.groupby('id_incidente'):
         incident_resumo = group['evento_resumo'].iloc[0]
@@ -213,7 +216,6 @@ def show_plano_acao_page():
                         if prazo_dt < date.today(): is_overdue = True
                     except (ValueError, TypeError): pass
                 
-                # Usa um container normal, mas o envolvemos em um div com a classe CSS se estiver atrasado
                 container_class = "overdue-container" if is_overdue else ""
                 with st.html(f"<div class='{container_class}'>"):
                     with st.container(border=True):
@@ -246,20 +248,15 @@ def show_plano_acao_page():
     with st.expander("📖 Ver Histórico Completo em Tabela", expanded=False):
         st.info("Esta tabela mostra todos os itens do plano de ação com base nos filtros acima.")
         history_df_prepared = prepare_history_df(filtered_df)
-        st.dataframe(
-            history_df_prepared,
-            column_config={
-                "id": None, "id_acao_bloqueio": None, "id_incidente": None, "url_evidencia": None,
-                "unidade_operacional": st.column_config.TextColumn("UO", width="small"),
-                "evento_resumo": st.column_config.TextColumn("Incidente Original"),
-                "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", width="large"),
-                "detalhes_conclusao": "Detalhes da Ação",
-                "status": "Status", "responsavel_email": st.column_config.TextColumn("Responsável"),
-                "prazo_inicial": "Prazo", "data_conclusao": "Conclusão",
-                "foto_evidencia": st.column_config.ImageColumn("Foto Evidência"),
-                "pdf_evidencia": st.column_config.LinkColumn("PDF Evidência", display_text="📄 Ver PDF"),
-            },
-            column_order=[ "unidade_operacional", "evento_resumo", "descricao_acao", "detalhes_conclusao", "status", 
-                "responsavel_email", "prazo_inicial", "data_conclusao", "foto_evidencia", "pdf_evidencia" ],
-            hide_index=True, width='stretch'
-        )
+        st.dataframe(history_df_prepared, column_config={
+            "id": None, "id_acao_bloqueio": None, "id_incidente": None, "url_evidencia": None,
+            "unidade_operacional": st.column_config.TextColumn("UO", width="small"),
+            "evento_resumo": st.column_config.TextColumn("Incidente Original"),
+            "descricao_acao": st.column_config.TextColumn("Ação de Abrangência", width="large"),
+            "detalhes_conclusao": "Detalhes da Ação", "status": "Status", 
+            "responsavel_email": st.column_config.TextColumn("Responsável"), "prazo_inicial": "Prazo", 
+            "data_conclusao": "Conclusão", "foto_evidencia": st.column_config.ImageColumn("Foto Evidência"),
+            "pdf_evidencia": st.column_config.LinkColumn("PDF Evidência", display_text="📄 Ver PDF"),
+        }, column_order=[ "unidade_operacional", "evento_resumo", "descricao_acao", "detalhes_conclusao", "status", 
+            "responsavel_email", "prazo_inicial", "data_conclusao", "foto_evidencia", "pdf_evidencia" ],
+        hide_index=True, width='stretch')
