@@ -150,8 +150,11 @@ def display_admin_summary_dashboard():
             overdue_count_critical = df_consolidated.get('Ações Vencidas', pd.Series(dtype=int)).get(most_critical_unit, 0)
             st.write(f"**Ações com Execução Vencida ({int(overdue_count_critical)}):**")
             
-            critical_overdue = overdue_df[overdue_df['unidade_operacional'] == most_critical_unit]
-            if not critical_overdue.empty:
-                st.table(critical_overdue[['descricao_acao', 'responsavel_email', 'prazo_inicial']])
+            if not overdue_df.empty:
+                critical_overdue = overdue_df[overdue_df['unidade_operacional'] == most_critical_unit]
+                if not critical_overdue.empty:
+                    st.table(critical_overdue[['descricao_acao', 'responsavel_email', 'prazo_inicial']])
+                else:
+                    st.write("Nenhuma para esta unidade.")
             else:
                 st.write("Nenhuma.")
