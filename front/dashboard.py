@@ -124,7 +124,7 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                     log_action("ADD_ACTION_PLAN_ITEM", {"plan_id": new_id, "desc": action_data['descricao'], "target_unit": unit_to_save})
         
         st.success(f"{saved_count} ação(ões) salvas com sucesso!")
-        st.balloons(); import time; time.sleep(2); st.rerun()
+        import time; time.sleep(2); st.rerun()
 
 def render_incident_card(incident, col, incident_manager, is_pending):
     with col.container(border=True):
