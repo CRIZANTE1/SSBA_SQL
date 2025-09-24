@@ -18,6 +18,7 @@ from front.administracao import show_admin_page
 from front.plano_de_acao import show_plano_acao_page
 from gdrive.matrix_manager import get_matrix_manager 
 from operations.audit_logger import log_action
+# <<< NOVA IMPORTAÇÃO >>>
 from auth.azure_auth import handle_redirect
 
 def configurar_pagina():
@@ -103,6 +104,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
     
 
