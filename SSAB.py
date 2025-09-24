@@ -18,7 +18,6 @@ from front.administracao import show_admin_page
 from front.plano_de_acao import show_plano_acao_page
 from gdrive.matrix_manager import get_matrix_manager 
 from operations.audit_logger import log_action
-# <<< NOVA IMPORTAÇÃO >>>
 from auth.azure_auth import handle_redirect
 
 def configurar_pagina():
@@ -103,5 +102,11 @@ def main():
         page_to_run["function"]()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        st.caption('Copyright 2024, Cristian Ferreira Carlos, Todos os direitos reservados.')
+        st.caption('https://www.linkedin.com/in/cristian-ferreira-carlos-256b19161/')
+    except Exception as e:
+        st.error(f"Erro inesperado no sistema: {str(e)}")
+        st.stop()
 
