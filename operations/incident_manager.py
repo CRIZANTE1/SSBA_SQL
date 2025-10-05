@@ -100,25 +100,25 @@ class IncidentManager:
     def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
         """
         Adiciona um novo registro na aba central 'plano_de_acao_abrangencia',
-        incluindo a nova coluna 'detalhes_conclusao' vazia.
+        incluindo todas as colunas conforme definido em sheets_config.yaml
         """
         logger.info(f"Adicionando ação de abrangência para a ação {id_acao_bloqueio} na unidade {unidade_operacional}.")
         prazo_str = prazo_inicial.strftime('%d/%m/%Y')
         co_resp_email_str = co_responsavel_email if co_responsavel_email else ""
-
-        # A ordem aqui deve corresponder exatamente à ordem das colunas na sua planilha
+    
+        # Ordem DEVE corresponder exatamente ao sheets_config.yaml
         new_action_data = [
-            id_acao_bloqueio, 
-            unidade_operacional, 
-            responsavel_email, 
-            co_resp_email_str,
-            prazo_str, 
-            status,
-            "", # data_conclusao (inicialmente vazia)
-            "", # url_evidencia (inicialmente vazia)
-            ""  # detalhes_conclusao (inicialmente vazia)
+            id_acao_bloqueio,          # id_acao_bloqueio
+            unidade_operacional,       # unidade_operacional
+            responsavel_email,         # responsavel_email
+            co_resp_email_str,         # co_responsavel_email
+            prazo_str,                 # prazo_inicial
+            status,                    # status
+            "",                        # data_conclusao (inicialmente vazia)
+            "",                        # url_evidencia (inicialmente vazia)
+            ""                         # detalhes_conclusao (inicialmente vazia)
         ]
-
+    
         new_id = self.sheet_ops.adc_dados_aba("plano_de_acao_abrangencia", new_action_data)
         if new_id:
             logger.info(f"Ação de abrangência {new_id} adicionada com sucesso.")
@@ -148,23 +148,33 @@ class IncidentManager:
         action_plan_df = self.get_all_action_plans()
         if action_plan_df.empty or 'unidade_operacional' not in action_plan_df.columns:
             return set()
-
+    
+        # Filtra as ações da unidade específica
         unit_actions_df = action_plan_df[action_plan_df['unidade_operacional'] == unit_name]
         if unit_actions_df.empty:
             return set()
-
+    
         all_blocking_actions_df = self.get_all_blocking_actions()
         if all_blocking_actions_df.empty:
             return set()
-
+    
+        # Faz o merge para obter os IDs dos incidentes
         merged_df = pd.merge(
             unit_actions_df,
             all_blocking_actions_df[['id', 'id_incidente']],
             left_on='id_acao_bloqueio',
             right_on='id',
-            how='inner'
+            how='left'
         )
-        return set(merged_df['id_incidente'].unique())
+        
+        # Remove valores nulos e garante que estamos trabalhando com strings
+        merged_df = merged_df.dropna(subset=['id_incidente'])
+        merged_df['id_incidente'] = merged_df['id_incidente'].astype(str)
+        
+        # Retorna o conjunto de IDs únicos de incidentes cobertos
+        covered_ids = set(merged_df['id_incidente'].unique())
+        
+        return covered_ids
 
     def get_globally_pending_incidents(self, all_active_units: list[str], all_incidents_df: pd.DataFrame) -> pd.DataFrame:
         """

@@ -131,8 +131,10 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         foto_url = incident.get('foto_url')
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
             display_url = convert_drive_url_to_displayable(foto_url)
-            if display_url: st.image(display_url, width='stretch')
-            else: st.caption("Imagem não disponível ou URL inválida")
+            if display_url: 
+                st.image(display_url, use_container_width=True)
+            else: 
+                st.caption("Imagem não disponível ou URL inválida")
         else:
             st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
             st.caption("Sem imagem anexada")
@@ -143,7 +145,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
             st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
         st.write("") 
         if is_pending:
-            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'):
+            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
                 abrangencia_dialog(incident, incident_manager)
         else: st.success("✔ Análise Registrada", icon="✅")
 
@@ -168,7 +170,6 @@ def display_incident_list(incident_manager: IncidentManager):
         if not all_active_units:
             st.warning("Não há unidades operacionais cadastradas no sistema."); st.info("Cadastre usuários e associe-os a unidades."); return
         
-        # <<< ESTA É A LINHA CORRIGIDA >>>
         incidents_to_show_df = incident_manager.get_globally_pending_incidents(all_active_units, all_incidents_df)
 
         if incidents_to_show_df.empty:
@@ -183,9 +184,10 @@ def display_incident_list(incident_manager: IncidentManager):
             all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
             sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
         except Exception: sorted_incidents = all_incidents_df
+        
         covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
         pending_incidents_df = sorted_incidents[~sorted_incidents['id'].isin(covered_incident_ids)]
-        covered_incidents_df = sorted_incidents[sorted_incidents['id'].isin(covered_incident_ids)]
+        
         st.subheader("🚨 Alertas Pendentes de Análise")
         if pending_incidents_df.empty:
             st.success(f"🎉 Ótimo trabalho! Não há alertas pendentes para a unidade **{user_unit}**.")
@@ -194,14 +196,6 @@ def display_incident_list(incident_manager: IncidentManager):
             cols_pending = st.columns(3)
             for i, (_, incident) in enumerate(pending_incidents_df.iterrows()):
                 col = cols_pending[i % 3]; render_incident_card(incident, col, incident_manager, is_pending=True)
-        st.divider()
-        st.subheader("✅ Alertas já Analisados")
-        if covered_incidents_df.empty:
-            st.info("Nenhum alerta foi analisado por esta unidade ainda.")
-        else:
-            cols_covered = st.columns(3)
-            for i, (_, incident) in enumerate(covered_incidents_df.iterrows()):
-                col = cols_covered[i % 3]; render_incident_card(incident, col, incident_manager, is_pending=False)
 
 def show_dashboard_page():
     check_permission(level='viewer')
