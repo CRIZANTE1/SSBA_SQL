@@ -82,7 +82,6 @@ class MatrixManager:
         return success
 
     def update_user(self, email: str, updates: dict) -> bool:
-        # (código existente)
         logger.info(f"Tentando atualizar usuário '{email}' com dados: {updates}")
         try:
             worksheet = self.sheet_ops.spreadsheet.worksheet("usuarios")
