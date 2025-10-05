@@ -8,6 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
+
 APP_URL = os.getenv("APP_URL")
 
 # --- Configuração de Path ---
