@@ -5,7 +5,7 @@ Utiliza uma sintaxe de template simples (ex: {{ variavel }}) que pode ser proces
 por uma função de renderização.
 """
 
-TEMPLATES = {
+EMPLATES = {
     'overdue_actions': {
         'subject': '⚠️ Alerta: Ações de Abrangência Atrasadas - {{current_date}}',
         'template': '''
@@ -47,7 +47,7 @@ TEMPLATES = {
     },
 
     'equipment_expiring': {
-        'subject': '⏰ Equipamentos vencendo em {{days_notice}} dias - ISF IA',
+        'subject': '⏰ Equipamentos vencendo em {{days_notice}} dias',
         'template': '''
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -79,7 +79,7 @@ TEMPLATES = {
 <body>
     <div class="container">
         <div class="header">
-            <h1>⏰ Alerta de Vencimentos - ISF IA</h1>
+            <h1>⏰ Alerta de Vencimentos </h1>
             <p>Equipamentos necessitando atenção nos próximos {{days_notice}} dias</p>
         </div>
         <div class="content">
@@ -132,14 +132,14 @@ TEMPLATES = {
     },
     
     'pending_issues': {
-        'subject': '🚨 Pendências críticas encontradas - ISF IA',
+        'subject': '🚨 Pendências críticas encontradas',
         'template': '''
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pendências Críticas - ISF IA</title>
+    <title>Pendências Críticas</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; background-color: #f4f4f4; }
         .container { max-width: 800px; margin: 0 auto; background-color: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
