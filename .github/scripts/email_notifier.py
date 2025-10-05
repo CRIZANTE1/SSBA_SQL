@@ -1,3 +1,4 @@
+# .github/scripts/email_notifier.py
 import os
 import sys
 import smtplib
@@ -8,29 +9,25 @@ from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 
+# --- Configuração de Path ---
 try:
-
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    # Subimos dois níveis para chegar à raiz do projeto (de .github/scripts para a raiz)
     root_dir = os.path.abspath(os.path.join(script_dir, '..', '..'))
     if root_dir not in sys.path:
         sys.path.append(root_dir)
     
     from operations.sheet import SheetOperations
-    from email_templates import EMPLATES # Importa os templates do arquivo local
+    from email_templates import EMPLATES
 except ImportError as e:
     print(f"Erro de importação: {e}")
-    print("Verifique se o script está sendo executado a partir do diretório correto e se a estrutura de pastas está correta.")
     sys.exit(1)
 
-# Carrega variáveis de ambiente de um arquivo .env (para desenvolvimento local)
 load_dotenv(os.path.join(root_dir, '.env'))
 
+# --- Funções Auxiliares (sem alteração) ---
 def get_smtp_config_from_env():
-    """Lê a configuração SMTP a partir de variáveis de ambiente."""
     receiver_emails_str = os.getenv("RECEIVER_EMAIL", "")
     admin_emails = [email.strip() for email in receiver_emails_str.split(',') if email.strip()]
-
     config = {
         "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
         "smtp_port": int(os.getenv("SMTP_PORT", 465)),
@@ -40,70 +37,110 @@ def get_smtp_config_from_env():
     }
     if not all([config["sender_email"], config["sender_password"], config["receiver_emails_admin"]]):
         missing = [key for key, value in config.items() if not value]
-        raise ValueError(f"Variáveis de ambiente de e-mail ausentes: {', '.join(missing)}. Verifique os Secrets.")
+        raise ValueError(f"Variáveis de ambiente ausentes: {', '.join(missing)}.")
     return config
 
 def render_template(template_str: str, context: dict) -> str:
-    """Substitui placeholders em uma string de template com valores de um dicionário."""
     for key, value in context.items():
         template_str = template_str.replace(f"{{{{{key}}}}}", str(value))
     return template_str
 
-def format_units_html_block(overdue_df: pd.DataFrame) -> str:
-    """Formata um DataFrame de itens atrasados em um bloco HTML com tabelas por unidade."""
-    html_block = ""
-    
-    # Agrupa por unidade para melhor organização no corpo do e-mail
-    for unit_name, group in overdue_df.groupby('unidade_operacional'):
-        html_block += f'<h2>Unidade: {unit_name} ({len(group)} item(s) atrasado(s))</h2>'
-        
-        group_display = group.copy()
-        group_display['prazo_inicial'] = pd.to_datetime(group_display['prazo_inicial'], dayfirst=True).dt.strftime('%d/%m/%Y')
-        
-        cols_to_show = {
-            'descricao_acao': 'Ação de Abrangência',
-            'responsavel_email': 'Responsável',
-            'co_responsavel_email': 'Co-responsável',
-            'prazo_inicial': 'Prazo Vencido'
-        }
-        if 'co_responsavel_email' not in group_display.columns:
-            group_display['co_responsavel_email'] = ""
-
-        group_display = group_display[list(cols_to_show.keys())].rename(columns=cols_to_show)
-        html_block += group_display.to_html(index=False, border=0, na_rep='N/A')
-            
-    return html_block
-
 def send_smtp_email(subject: str, html_body: str, recipients: list, config: dict):
-    """Envia um e-mail para uma lista de destinatários."""
     if not recipients:
         print("Nenhum destinatário válido fornecido. Pulando envio.")
         return
-
     valid_recipients = sorted(list(set([email for email in recipients if email and '@' in email])))
     if not valid_recipients:
         print("Nenhum destinatário válido após a limpeza. Pulando envio.")
         return
-        
+    
     recipient_str = ", ".join(valid_recipients)
-
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
     message["From"] = f"Sistema de Abrangência <{config['sender_email']}>"
     message["To"] = recipient_str
     message.attach(MIMEText(html_body, "html", "utf-8"))
-
     context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL(config["smtp_server"], config["smtp_port"], context=context) as server:
             server.login(config["sender_email"], config["sender_password"])
             server.sendmail(config["sender_email"], valid_recipients, message.as_string())
-            print(f"E-mail de lembrete enviado com sucesso para: {recipient_str}")
+            print(f"E-mail enviado com sucesso para: {recipient_str}")
     except Exception as e:
         print(f"ERRO ao enviar e-mail para {recipient_str}: {e}")
 
+# --- Funções de Formatação de E-mail (Refatoradas) ---
+
+def format_user_email_content(group_df: pd.DataFrame) -> str:
+    """Formata o bloco HTML para o e-mail do usuário, com as tabelas de suas pendências."""
+    html_block = ""
+    for unit_name, group in group_df.groupby('unidade_operacional'):
+        html_block += f'<h2>Unidade: {unit_name} ({len(group)} item(s) atrasado(s))</h2>'
+        group_display = group.copy()
+        group_display['prazo_inicial'] = pd.to_datetime(group_display['prazo_inicial'], dayfirst=True).dt.strftime('%d/%m/%Y')
+        cols_to_show = {'descricao_acao': 'Ação de Abrangência', 'prazo_inicial': 'Prazo Vencido'}
+        group_display = group_display[list(cols_to_show.keys())].rename(columns=cols_to_show)
+        html_block += group_display.to_html(index=False, border=0, na_rep='N/A')
+    return html_block
+
+def format_admin_summary_table(overdue_df: pd.DataFrame) -> str:
+    """Formata a tabela HTML consolidada para o relatório do administrador."""
+    summary_df = overdue_df.copy()
+    summary_df['prazo_inicial'] = pd.to_datetime(summary_df['prazo_inicial'], dayfirst=True).dt.strftime('%d/%m/%Y')
+    cols_to_show = {
+        'unidade_operacional': 'Unidade',
+        'descricao_acao': 'Ação de Abrangência',
+        'responsavel_email': 'Responsável',
+        'prazo_inicial': 'Prazo Vencido'
+    }
+    summary_df = summary_df[list(cols_to_show.keys())].rename(columns=cols_to_show)
+    return summary_df.to_html(index=False, na_rep='N/A')
+
+# --- Funções de Lógica de Envio (Novas/Refatoradas) ---
+
+def send_user_notifications(grouped_by_responsible, config: dict):
+    """Envia e-mails individuais para cada responsável com suas pendências."""
+    print("\n--- Iniciando envio de notificações para usuários ---")
+    email_tpl = EMPLATES['overdue_actions']
+    
+    for (resp_email, co_resp_email), group_df in grouped_by_responsible:
+        recipients = [resp_email]
+        if co_resp_email:
+            recipients.append(co_resp_email)
+        
+        units_html = format_user_email_content(group_df)
+        context = {
+            "current_date": datetime.now().strftime('%d/%m/%Y'),
+            "units_html_block": units_html
+        }
+        
+        email_body = render_template(email_tpl['template'], context)
+        email_subject = render_template(email_tpl['subject'], context)
+        
+        send_smtp_email(email_subject, email_body, recipients, config)
+
+def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
+    """Envia um único relatório gerencial consolidado para os administradores."""
+    print("\n--- Iniciando envio de relatório gerencial para administradores ---")
+    email_tpl = EMPLATES['admin_summary_report']
+    admin_recipients = config['receiver_emails_admin']
+
+    summary_table_html = format_admin_summary_table(overdue_df)
+    context = {
+        "current_date": datetime.now().strftime('%d/%m/%Y'),
+        "total_overdue": len(overdue_df),
+        "total_units": overdue_df['unidade_operacional'].nunique(),
+        "summary_table_html": summary_table_html
+    }
+
+    email_body = render_template(email_tpl['template'], context)
+    email_subject = render_template(email_tpl['subject'], context)
+    
+    send_smtp_email(email_subject, email_body, admin_recipients, config)
+
+# --- Função Principal ---
+
 def main():
-    """Função principal que busca itens atrasados e envia e-mails consolidados."""
     print("Iniciando script de notificação...")
     try:
         config = get_smtp_config_from_env()
@@ -137,34 +174,17 @@ def main():
         if 'co_responsavel_email' not in final_df.columns:
             final_df['co_responsavel_email'] = ''
         final_df['co_responsavel_email'].fillna('', inplace=True)
-
+        
+        # Agrupa os itens para notificar os responsáveis
         grouped_by_responsible = final_df.groupby(['responsavel_email', 'co_responsavel_email'])
         
-        for (resp_email, co_resp_email), group_df in grouped_by_responsible:
-            recipients = [resp_email]
-            if co_resp_email:
-                recipients.append(co_resp_email)
-            recipients.extend(config['receiver_emails_admin'])
-            
-            # Pega o template do e-mail
-            email_tpl = EMPLATES['overdue_actions']
-            
-            # Gera o bloco HTML dinâmico com as tabelas das unidades
-            units_html = format_units_html_block(group_df)
+        # ETAPA 1: Enviar notificações para os usuários
+        send_user_notifications(grouped_by_responsible, config)
 
-            # Prepara o contexto para renderizar o template
-            context = {
-                "current_date": datetime.now().strftime('%d/%m/%Y'),
-                "units_html_block": units_html
-            }
-
-            # Renderiza o corpo e o assunto final
-            email_body = render_template(email_tpl['template'], context)
-            email_subject = render_template(email_tpl['subject'], context)
-            
-            send_smtp_email(email_subject, email_body, recipients, config)
+        # ETAPA 2: Enviar o relatório consolidado para os administradores
+        send_admin_summary(final_df, config)
         
-        print("Script finalizado com sucesso.")
+        print("\nScript finalizado com sucesso.")
 
     except Exception as e:
         print(f"ERRO FATAL no script: {e}")
