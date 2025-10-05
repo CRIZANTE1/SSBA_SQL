@@ -97,7 +97,7 @@ class IncidentManager:
         """Retorna todos os itens do plano de ação de abrangência da aba central."""
         return self.sheet_ops.get_df_from_worksheet("plano_de_acao_abrangencia")
 
-   def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
+    def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
         """
         Adiciona um novo registro na aba central 'plano_de_acao_abrangencia',
         incluindo todas as colunas conforme definido em sheets_config.yaml
