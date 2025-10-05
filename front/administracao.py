@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -133,7 +132,7 @@ def display_incident_registration_tab():
             
             st.markdown("##### Recomendações / Ações de Bloqueio Sugeridas")
             recomendacoes_df = pd.DataFrame(data.get('recomendacoes', []), columns=["Descrição da Ação"])
-            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", use_container_width=True)
+            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", width='stretch') # CORRIGIDO
 
             confirm_button = st.form_submit_button("Confirmar e Salvar Alerta Completo")
 
