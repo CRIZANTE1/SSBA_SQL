@@ -148,23 +148,33 @@ class IncidentManager:
         action_plan_df = self.get_all_action_plans()
         if action_plan_df.empty or 'unidade_operacional' not in action_plan_df.columns:
             return set()
-
+    
+        # Filtra as ações da unidade específica
         unit_actions_df = action_plan_df[action_plan_df['unidade_operacional'] == unit_name]
         if unit_actions_df.empty:
             return set()
-
+    
         all_blocking_actions_df = self.get_all_blocking_actions()
         if all_blocking_actions_df.empty:
             return set()
-
+    
+        # Faz o merge para obter os IDs dos incidentes
         merged_df = pd.merge(
             unit_actions_df,
             all_blocking_actions_df[['id', 'id_incidente']],
             left_on='id_acao_bloqueio',
             right_on='id',
-            how='inner'
+            how='left'
         )
-        return set(merged_df['id_incidente'].unique())
+        
+        # Remove valores nulos e garante que estamos trabalhando com strings
+        merged_df = merged_df.dropna(subset=['id_incidente'])
+        merged_df['id_incidente'] = merged_df['id_incidente'].astype(str)
+        
+        # Retorna o conjunto de IDs únicos de incidentes cobertos
+        covered_ids = set(merged_df['id_incidente'].unique())
+        
+        return covered_ids
 
     def get_globally_pending_incidents(self, all_active_units: list[str], all_incidents_df: pd.DataFrame) -> pd.DataFrame:
         """
