@@ -18,10 +18,13 @@ plano_de_acao_abrangencia:
   - id_acao_bloqueio
   - unidade_operacional
   - responsavel_email
+  - co_responsavel_email
   - prazo_inicial
   - status
+  - data_conclusao
+  - url_evidencia
+  - detalhes_conclusao
 
-# Manter as abas de usuários e auditoria na planilha matriz pode ser útil
 usuarios:
   - email
   - nome
