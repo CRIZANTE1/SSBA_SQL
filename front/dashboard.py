@@ -100,7 +100,11 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
                     st.error(f"Ação selecionada '{action['descricao_acao']}' está sem Responsável Principal."); return
                 
                 responsavel_email = user_map.get(responsavel_nome)
-                co_responsavel_email = user_map.get(co_responsavel_nome) if co_responsavel_nome != "(Nenhum)" else ""
+                if not responsavel_email:
+                    st.error(f"Erro de Dados: O e-mail para o responsável '{responsavel_nome}' não foi encontrado na lista de usuários ('utilities'). Verifique a planilha e tente novamente.")
+                    return
+                
+                co_responsavel_email = user_map.get(co_responsavel_nome) if co_responsavel_nome and co_responsavel_nome != "(Nenhum)" else ""
                 
                 actions_to_save.append({
                     "id_acao_bloqueio": action_id, "descricao": action['descricao_acao'], "unidade_operacional": unit_to_save,
@@ -132,7 +136,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
             display_url = convert_drive_url_to_displayable(foto_url)
             if display_url: 
-                st.image(display_url, use_container_width=True)
+                st.image(display_url, width='stretch') # CORRIGIDO
             else: 
                 st.caption("Imagem não disponível ou URL inválida")
         else:
@@ -145,7 +149,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
             st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
         st.write("") 
         if is_pending:
-            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
+            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'): # CORRIGIDO
                 abrangencia_dialog(incident, incident_manager)
         else: st.success("✔ Análise Registrada", icon="✅")
 
