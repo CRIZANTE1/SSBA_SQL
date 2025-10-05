@@ -34,8 +34,6 @@ jobs:
 
       # 4. Executa o script de notificação a partir de sua nova localização
       - name: Run email notifier script
-        # Define as variáveis de ambiente que o script Python vai ler
-        # Estes valores vêm dos "Secrets" configurados no seu repositório GitHub
         env:
           # Credenciais para acessar Google Sheets e Google Drive
           GCP_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}
@@ -43,8 +41,10 @@ jobs:
           # Credenciais para o envio de e-mail via SMTP
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }} # E-mail(s) do(s) administrador(es)
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+
+          # --- ADIÇÃO IMPORTANTE AQUI ---
+          # ID da planilha a ser lido pelo gdrive/config.py
+          MATRIX_SPREADSHEET_ID: ${{ secrets.MATRIX_SPREADSHEET_ID }}
           
-        # --- ATUALIZAÇÃO PRINCIPAL AQUI ---
-        # Executa o script a partir de sua nova pasta.
         run: python .github/scripts/email_notifier.py
