@@ -9,8 +9,6 @@ from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 
-APP_URL = os.getenv("APP_URL")
-
 # --- Configuração de Path ---
 try:
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +24,10 @@ except ImportError as e:
 
 load_dotenv(os.path.join(root_dir, '.env'))
 
-# --- Funções Auxiliares (sem alteração) ---
+# URL do aplicativo (ajuste conforme sua URL real)
+APP_URL = os.getenv("APP_URL", "https://seu-app.streamlit.app")
+
+# --- Funções Auxiliares ---
 def get_smtp_config_from_env():
     receiver_emails_str = os.getenv("RECEIVER_EMAIL", "")
     admin_emails = [email.strip() for email in receiver_emails_str.split(',') if email.strip()]
@@ -37,8 +38,8 @@ def get_smtp_config_from_env():
         "sender_password": os.getenv("SENDER_PASSWORD"),
         "receiver_emails_admin": admin_emails 
     }
-    if not all([config["sender_email"], config["sender_password"], config["receiver_emails_admin"]]):
-        missing = [key for key, value in config.items() if not value]
+    if not all([config["sender_email"], config["sender_password"]]):
+        missing = [key for key, value in config.items() if key != "receiver_emails_admin" and not value]
         raise ValueError(f"Variáveis de ambiente ausentes: {', '.join(missing)}.")
     return config
 
@@ -71,7 +72,7 @@ def send_smtp_email(subject: str, html_body: str, recipients: list, config: dict
     except Exception as e:
         print(f"ERRO ao enviar e-mail para {recipient_str}: {e}")
 
-# --- Funções de Formatação de E-mail (Refatoradas) ---
+# --- Funções de Formatação de E-mail ---
 
 def format_user_email_content(group_df: pd.DataFrame) -> str:
     """Formata o bloco HTML para o e-mail do usuário, com as tabelas de suas pendências."""
@@ -98,7 +99,29 @@ def format_admin_summary_table(overdue_df: pd.DataFrame) -> str:
     summary_df = summary_df[list(cols_to_show.keys())].rename(columns=cols_to_show)
     return summary_df.to_html(index=False, na_rep='N/A')
 
-# --- Funções de Lógica de Envio (Novas/Refatoradas) ---
+# --- Funções de Lógica de Envio ---
+
+def send_user_notifications(grouped_by_responsible, config: dict):
+    """Envia e-mails individuais para cada responsável com suas pendências."""
+    print("\n--- Iniciando envio de notificações para usuários ---")
+    email_tpl = EMPLATES['overdue_actions']
+    
+    for (resp_email, co_resp_email), group_df in grouped_by_responsible:
+        recipients = [resp_email]
+        if co_resp_email:
+            recipients.append(co_resp_email)
+        
+        units_html = format_user_email_content(group_df)
+        context = {
+            "current_date": datetime.now().strftime('%d/%m/%Y'),
+            "units_html_block": units_html,
+            "app_url": APP_URL
+        }
+        
+        email_body = render_template(email_tpl['template'], context)
+        email_subject = render_template(email_tpl['subject'], context)
+        
+        send_smtp_email(email_subject, email_body, recipients, config)
 
 def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
     """Envia um único relatório gerencial consolidado para os administradores."""
@@ -117,32 +140,14 @@ def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
         "current_date": datetime.now().strftime('%d/%m/%Y'),
         "total_overdue": len(overdue_df),
         "total_units": overdue_df['unidade_operacional'].nunique(),
-        "summary_table_html": summary_table_html
+        "summary_table_html": summary_table_html,
+        "app_url": APP_URL
     }
 
     email_body = render_template(email_tpl['template'], context)
     email_subject = render_template(email_tpl['subject'], context)
     
     print(f"Enviando relatório para administradores: {', '.join(admin_recipients)}")
-    send_smtp_email(email_subject, email_body, admin_recipients, config)
-
-def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
-    """Envia um único relatório gerencial consolidado para os administradores."""
-    print("\n--- Iniciando envio de relatório gerencial para administradores ---")
-    email_tpl = EMPLATES['admin_summary_report']
-    admin_recipients = config['receiver_emails_admin']
-
-    summary_table_html = format_admin_summary_table(overdue_df)
-    context = {
-        "current_date": datetime.now().strftime('%d/%m/%Y'),
-        "total_overdue": len(overdue_df),
-        "total_units": overdue_df['unidade_operacional'].nunique(),
-        "summary_table_html": summary_table_html
-    }
-
-    email_body = render_template(email_tpl['template'], context)
-    email_subject = render_template(email_tpl['subject'], context)
-    
     send_smtp_email(email_subject, email_body, admin_recipients, config)
 
 # --- Função Principal ---
@@ -180,7 +185,8 @@ def main():
 
         if 'co_responsavel_email' not in final_df.columns:
             final_df['co_responsavel_email'] = ''
-        final_df['co_responsavel_email'].fillna('', inplace=True)
+        # Corrigido o warning do pandas
+        final_df['co_responsavel_email'] = final_df['co_responsavel_email'].fillna('')
         
         # Agrupa os itens para notificar os responsáveis
         grouped_by_responsible = final_df.groupby(['responsavel_email', 'co_responsavel_email'])
