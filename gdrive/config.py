@@ -1,13 +1,18 @@
+# gdrive/config.py
+
 import os
 import json
 import streamlit as st
 import logging
+import sys # <--- CORREÇÃO AQUI: Adicionar a importação do módulo sys
 
 logger = logging.getLogger('abrangencia_app.config')
 
 # --- LÓGICA DE LEITURA DE CONFIGURAÇÕES ATUALIZADA ---
 
 SPREADSHEET_ID = None
+# Como você só usa uma planilha, as pastas não são críticas para o script de notificação,
+# mas mantemos a estrutura para a aplicação web.
 PUBLIC_IMAGES_FOLDER_ID = None
 RESTRICTED_ATTACHMENTS_FOLDER_ID = None
 ACTION_PLAN_EVIDENCE_FOLDER_ID = None 
