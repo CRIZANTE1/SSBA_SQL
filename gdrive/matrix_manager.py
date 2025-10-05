@@ -31,7 +31,7 @@ class MatrixManager:
         return _self.sheet_ops.get_df_from_worksheet(sheet_name)
 
     @st.cache_data(ttl=300)
-    def get_utilities_users(_self) -> dict:
+    def get_utilities_users(_self) -> tuple[dict, list]:
         """
         Carrega os usuários da aba 'utilities' e retorna um dicionário
         mapeando nome para e-mail e uma lista de nomes.
@@ -42,7 +42,7 @@ class MatrixManager:
         
         utilities_df.dropna(subset=['nome', 'email'], inplace=True)
         utilities_df = utilities_df[utilities_df['nome'].str.strip() != '']
-
+    
         user_map = pd.Series(utilities_df.email.values, index=utilities_df.nome).to_dict()
         
         user_names = sorted(utilities_df['nome'].tolist())
