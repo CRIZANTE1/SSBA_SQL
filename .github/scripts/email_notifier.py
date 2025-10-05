@@ -98,26 +98,31 @@ def format_admin_summary_table(overdue_df: pd.DataFrame) -> str:
 
 # --- Funções de Lógica de Envio (Novas/Refatoradas) ---
 
-def send_user_notifications(grouped_by_responsible, config: dict):
-    """Envia e-mails individuais para cada responsável com suas pendências."""
-    print("\n--- Iniciando envio de notificações para usuários ---")
-    email_tpl = EMPLATES['overdue_actions']
+def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
+    """Envia um único relatório gerencial consolidado para os administradores."""
+    print("\n--- Iniciando envio de relatório gerencial para administradores ---")
     
-    for (resp_email, co_resp_email), group_df in grouped_by_responsible:
-        recipients = [resp_email]
-        if co_resp_email:
-            recipients.append(co_resp_email)
-        
-        units_html = format_user_email_content(group_df)
-        context = {
-            "current_date": datetime.now().strftime('%d/%m/%Y'),
-            "units_html_block": units_html
-        }
-        
-        email_body = render_template(email_tpl['template'], context)
-        email_subject = render_template(email_tpl['subject'], context)
-        
-        send_smtp_email(email_subject, email_body, recipients, config)
+    # Verifica se há administradores configurados
+    admin_recipients = config.get('receiver_emails_admin', [])
+    if not admin_recipients:
+        print("AVISO: Nenhum e-mail de administrador configurado. Pulando envio do relatório gerencial.")
+        return
+    
+    email_tpl = EMPLATES['admin_summary_report']
+
+    summary_table_html = format_admin_summary_table(overdue_df)
+    context = {
+        "current_date": datetime.now().strftime('%d/%m/%Y'),
+        "total_overdue": len(overdue_df),
+        "total_units": overdue_df['unidade_operacional'].nunique(),
+        "summary_table_html": summary_table_html
+    }
+
+    email_body = render_template(email_tpl['template'], context)
+    email_subject = render_template(email_tpl['subject'], context)
+    
+    print(f"Enviando relatório para administradores: {', '.join(admin_recipients)}")
+    send_smtp_email(email_subject, email_body, admin_recipients, config)
 
 def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
     """Envia um único relatório gerencial consolidado para os administradores."""
