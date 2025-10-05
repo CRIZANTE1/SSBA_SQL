@@ -25,18 +25,25 @@ load_dotenv()
 
 def get_smtp_config_from_env():
     """Lê a configuração SMTP a partir de variáveis de ambiente."""
+    # --- INÍCIO DA CORREÇÃO 1 ---
+    # Lê a string de e-mails do admin e a converte em uma lista limpa.
+    receiver_emails_str = os.getenv("RECEIVER_EMAIL", "")
+    admin_emails = [email.strip() for email in receiver_emails_str.split(',') if email.strip()]
+
     config = {
         "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
         "smtp_port": int(os.getenv("SMTP_PORT", 465)),
         "sender_email": os.getenv("SENDER_EMAIL"),
         "sender_password": os.getenv("SENDER_PASSWORD"),
-        # RECEIVER_EMAIL é o e-mail do admin/gestor que recebe cópia de tudo
-        "receiver_email_admin": os.getenv("RECEIVER_EMAIL") 
+        # RECEIVER_EMAIL agora é uma lista de e-mails do admin/gestor.
+        "receiver_emails_admin": admin_emails 
     }
     # Validação para garantir que as credenciais essenciais estão presentes
-    if not all([config["sender_email"], config["sender_password"], config["receiver_email_admin"]]):
+    if not all([config["sender_email"], config["sender_password"], config["receiver_emails_admin"]]):
+        # A validação funciona porque uma lista vazia ([]) é "Falsy" em Python.
         missing = [key for key, value in config.items() if not value]
         raise ValueError(f"Variáveis de ambiente de e-mail ausentes: {', '.join(missing)}. Verifique os Secrets do repositório.")
+    # --- FIM DA CORREÇÃO 1 ---
     return config
 
 def format_overdue_items_email(overdue_df: pd.DataFrame) -> str:
@@ -160,8 +167,9 @@ def main():
             if co_resp_email:
                 recipients.append(co_resp_email)
             
-            # Adiciona o e-mail do admin como cópia em todos os alertas
-            recipients.append(config['receiver_email_admin'])
+
+            recipients.extend(config['receiver_emails_admin'])
+            # --- FIM DA CORREÇÃO 2 ---
             
             # Formata o corpo do e-mail com os itens específicos deste grupo
             email_body = format_overdue_items_email(group_df)
