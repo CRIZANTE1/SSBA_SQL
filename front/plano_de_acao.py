@@ -155,15 +155,9 @@ def show_plano_acao_page():
     st.title("📋 Plano de Ação de Abrangência")
     check_permission(level='viewer')
 
-    # <<< CORREÇÃO APLICADA AQUI >>>
-    # 1. Verifica se o diálogo deve ser aberto
+    # Verifica se o diálogo deve ser aberto
     if st.session_state.get('item_to_edit'):
         edit_action_dialog(st.session_state.item_to_edit)
-        # 2. Se o diálogo foi fechado (com sucesso ou pelo X), limpa o estado
-        if st.session_state.get('dialog_closed', False):
-            del st.session_state.item_to_edit
-            del st.session_state.dialog_closed
-            st.rerun() # Força um rerun para garantir que a página reflita o estado limpo
 
     full_action_plan_df = load_action_plan_data()
 
