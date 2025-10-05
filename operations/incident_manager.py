@@ -100,25 +100,25 @@ class IncidentManager:
     def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
         """
         Adiciona um novo registro na aba central 'plano_de_acao_abrangencia',
-        incluindo a nova coluna 'detalhes_conclusao' vazia.
+        incluindo todas as colunas conforme definido em sheets_config.yaml
         """
         logger.info(f"Adicionando ação de abrangência para a ação {id_acao_bloqueio} na unidade {unidade_operacional}.")
         prazo_str = prazo_inicial.strftime('%d/%m/%Y')
         co_resp_email_str = co_responsavel_email if co_responsavel_email else ""
-
-        # A ordem aqui deve corresponder exatamente à ordem das colunas na sua planilha
+    
+        # Ordem DEVE corresponder exatamente ao sheets_config.yaml
         new_action_data = [
-            id_acao_bloqueio, 
-            unidade_operacional, 
-            responsavel_email, 
-            co_resp_email_str,
-            prazo_str, 
-            status,
-            "", # data_conclusao (inicialmente vazia)
-            "", # url_evidencia (inicialmente vazia)
-            ""  # detalhes_conclusao (inicialmente vazia)
+            id_acao_bloqueio,          # id_acao_bloqueio
+            unidade_operacional,       # unidade_operacional
+            responsavel_email,         # responsavel_email
+            co_resp_email_str,         # co_responsavel_email
+            prazo_str,                 # prazo_inicial
+            status,                    # status
+            "",                        # data_conclusao (inicialmente vazia)
+            "",                        # url_evidencia (inicialmente vazia)
+            ""                         # detalhes_conclusao (inicialmente vazia)
         ]
-
+    
         new_id = self.sheet_ops.adc_dados_aba("plano_de_acao_abrangencia", new_action_data)
         if new_id:
             logger.info(f"Ação de abrangência {new_id} adicionada com sucesso.")
