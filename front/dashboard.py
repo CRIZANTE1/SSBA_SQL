@@ -131,8 +131,10 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         foto_url = incident.get('foto_url')
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
             display_url = convert_drive_url_to_displayable(foto_url)
-            if display_url: st.image(display_url, use_container_width=True)
-            else: st.caption("Imagem não disponível ou URL inválida")
+            if display_url: 
+                st.image(display_url, use_container_width=True)
+            else: 
+                st.caption("Imagem não disponível ou URL inválida")
         else:
             st.markdown(f"#### Alerta: {incident.get('numero_alerta')}")
             st.caption("Sem imagem anexada")
@@ -143,7 +145,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
             st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
         st.write("") 
         if is_pending:
-            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'):
+            if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", use_container_width=True):
                 abrangencia_dialog(incident, incident_manager)
         else: st.success("✔ Análise Registrada", icon="✅")
 
