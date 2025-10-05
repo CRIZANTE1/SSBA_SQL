@@ -1,4 +1,3 @@
-# .github/scripts/email_templates.py
 
 EMPLATES = {
     'overdue_actions': {
@@ -20,6 +19,9 @@ EMPLATES = {
         th { background-color: #f2f2f2; font-weight: bold; }
         .footer { font-size: 12px; text-align: center; color: #888; margin-top: 30px; }
         .alert-summary { text-align: center; font-style: italic; color: #555; margin-bottom: 30px; }
+        .btn-access { display: inline-block; margin: 25px auto; padding: 12px 30px; background-color: #0068C9; color: white !important; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; }
+        .btn-access:hover { background-color: #0056a3; }
+        .access-container { text-align: center; margin: 25px 0; }
     </style>
 </head>
 <body>
@@ -30,6 +32,9 @@ EMPLATES = {
             Por favor, acesse o sistema para atualizar o status.
         </p>
         {{units_html_block}}
+        <div class="access-container">
+            <a href="{{app_url}}" class="btn-access">🔗 Acessar o Sistema de Abrangência</a>
+        </div>
         <p class="footer">Este é um e-mail automático. Por favor, não responda.</p>
     </div>
 </body>
@@ -37,7 +42,7 @@ EMPLATES = {
 '''
     },
 
-    # --- NOVO TEMPLATE PARA O ADMIN ---
+    # --- TEMPLATE PARA O ADMIN ---
     'admin_summary_report': {
         'subject': '📊 Relatório Gerencial: Ações de Abrangência Atrasadas - {{current_date}}',
         'template': '''
@@ -59,6 +64,9 @@ EMPLATES = {
         th, td { border: 1px solid #dddddd; padding: 10px 14px; text-align: left; }
         th { background-color: #34495e; color: white; font-weight: bold; }
         .footer { font-size: 12px; text-align: center; color: #888; margin-top: 30px; }
+        .btn-access { display: inline-block; margin: 25px auto; padding: 12px 30px; background-color: #2980b9; color: white !important; text-decoration: none; border-radius: 5px; font-weight: bold; text-align: center; }
+        .btn-access:hover { background-color: #1c5a85; }
+        .access-container { text-align: center; margin: 25px 0; }
     </style>
 </head>
 <body>
@@ -77,6 +85,9 @@ EMPLATES = {
         <h2>Lista Completa de Pendências</h2>
         <p>A tabela abaixo detalha todas as ações de abrangência com prazo vencido em todas as unidades.</p>
         {{summary_table_html}}
+        <div class="access-container">
+            <a href="{{app_url}}" class="btn-access">🔗 Acessar o Dashboard Administrativo</a>
+        </div>
         <p class="footer">Este é um relatório automático gerado pelo Sistema de Abrangência.</p>
     </div>
 </body>
