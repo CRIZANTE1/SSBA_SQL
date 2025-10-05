@@ -108,7 +108,6 @@ class MatrixManager:
             return False
 
     def remove_user(self, user_email: str) -> bool:
-        # (código existente)
         logger.info(f"Tentando remover usuário: {user_email}")
         try:
             worksheet = self.sheet_ops.spreadsheet.worksheet("usuarios")
@@ -128,7 +127,6 @@ class MatrixManager:
     # --- Métodos de Solicitação de Acesso ---
 
     def add_access_request(self, email: str, name: str, unit: str) -> bool:
-        # (código existente)
         requests_df = self.get_pending_access_requests()
         if not requests_df.empty and not requests_df[requests_df['email'].str.lower() == email.lower()].empty:
             logger.warning(f"Solicitação de acesso duplicada para {email}. Nenhuma ação tomada.")
@@ -140,14 +138,12 @@ class MatrixManager:
         return self.sheet_ops.adc_linha_simples("solicitacoes_acesso", request_data)
 
     def get_pending_access_requests(self) -> pd.DataFrame:
-        # (código existente)
         requests_df = self._get_df("solicitacoes_acesso")
         if requests_df.empty or 'status' not in requests_df.columns:
             return pd.DataFrame()
         return requests_df[requests_df['status'].str.lower() == 'pendente']
 
     def approve_access_request(self, email: str, role: str) -> bool:
-        # (código existente)
         requests_df = self.get_pending_access_requests()
         request_info = requests_df[requests_df['email'].str.lower() == email.lower()]
         if request_info.empty:
@@ -171,7 +167,6 @@ class MatrixManager:
             logger.error(f"Erro ao atualizar status da solicitação para {email}: {e}")
             return False
 
-    # <<< NOVO MÉTODO AQUI >>>
     def reject_access_request(self, email: str) -> bool:
         """Rejeita uma solicitação de acesso, atualizando seu status para 'rejeitado'."""
         logger.info(f"Rejeitando solicitação de acesso para {email}")
