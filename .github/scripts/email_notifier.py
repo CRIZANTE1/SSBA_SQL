@@ -8,25 +8,26 @@ from datetime import datetime
 import pandas as pd
 from dotenv import load_dotenv
 
-# --- Configuração de Path ---
-# Adiciona o diretório raiz ao path para encontrar os módulos do projeto
 try:
-    root_dir = os.path.dirname(os.path.abspath(__file__))
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Subimos dois níveis para chegar à raiz do projeto (de .github/scripts para a raiz)
+    root_dir = os.path.abspath(os.path.join(script_dir, '..', '..'))
     if root_dir not in sys.path:
         sys.path.append(root_dir)
+    
     from operations.sheet import SheetOperations
-except ImportError:
-    # Fallback para execução local
-    sys.path.append(os.path.abspath(os.path.join(root_dir, '..')))
-    from operations.sheet import SheetOperations
+    from email_templates import EMPLATES # Importa os templates do arquivo local
+except ImportError as e:
+    print(f"Erro de importação: {e}")
+    print("Verifique se o script está sendo executado a partir do diretório correto e se a estrutura de pastas está correta.")
+    sys.exit(1)
 
 # Carrega variáveis de ambiente de um arquivo .env (para desenvolvimento local)
-load_dotenv()
+load_dotenv(os.path.join(root_dir, '.env'))
 
 def get_smtp_config_from_env():
     """Lê a configuração SMTP a partir de variáveis de ambiente."""
-    # --- INÍCIO DA CORREÇÃO 1 ---
-    # Lê a string de e-mails do admin e a converte em uma lista limpa.
     receiver_emails_str = os.getenv("RECEIVER_EMAIL", "")
     admin_emails = [email.strip() for email in receiver_emails_str.split(',') if email.strip()]
 
@@ -35,40 +36,26 @@ def get_smtp_config_from_env():
         "smtp_port": int(os.getenv("SMTP_PORT", 465)),
         "sender_email": os.getenv("SENDER_EMAIL"),
         "sender_password": os.getenv("SENDER_PASSWORD"),
-        # RECEIVER_EMAIL agora é uma lista de e-mails do admin/gestor.
         "receiver_emails_admin": admin_emails 
     }
-    # Validação para garantir que as credenciais essenciais estão presentes
     if not all([config["sender_email"], config["sender_password"], config["receiver_emails_admin"]]):
-        # A validação funciona porque uma lista vazia ([]) é "Falsy" em Python.
         missing = [key for key, value in config.items() if not value]
-        raise ValueError(f"Variáveis de ambiente de e-mail ausentes: {', '.join(missing)}. Verifique os Secrets do repositório.")
-    # --- FIM DA CORREÇÃO 1 ---
+        raise ValueError(f"Variáveis de ambiente de e-mail ausentes: {', '.join(missing)}. Verifique os Secrets.")
     return config
 
-def format_overdue_items_email(overdue_df: pd.DataFrame) -> str:
-    """Formata um DataFrame de itens atrasados em um corpo de e-mail HTML bem estruturado."""
-    html_style = """
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #333; }
-        .container { max-width: 950px; margin: 20px auto; padding: 20px; background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; }
-        h1 { font-size: 24px; text-align: center; color: #c0392b; border-bottom: 2px solid #c0392b; padding-bottom: 10px; }
-        h2 { font-size: 18px; color: #34495e; margin-top: 35px; border-bottom: 2px solid #e0e0e0; padding-bottom: 5px; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 25px; font-size: 13px; background-color: #ffffff; }
-        th, td { border: 1px solid #dddddd; padding: 10px 14px; text-align: left; }
-        th { background-color: #f2f2f2; font-weight: bold; }
-        .footer { font-size: 12px; text-align: center; color: #888; margin-top: 30px; }
-    </style>
-    """
-    html_body = f"""
-    <html><head>{html_style}</head><body><div class="container">
-    <h1>⚠️ Alerta: Ações de Abrangência Atrasadas</h1>
-    <p style="text-align:center;">Este é um lembrete automático sobre as seguintes ações com prazo vencido. Por favor, atualize o status no sistema.</p>
-    """
+def render_template(template_str: str, context: dict) -> str:
+    """Substitui placeholders em uma string de template com valores de um dicionário."""
+    for key, value in context.items():
+        template_str = template_str.replace(f"{{{{{key}}}}}", str(value))
+    return template_str
+
+def format_units_html_block(overdue_df: pd.DataFrame) -> str:
+    """Formata um DataFrame de itens atrasados em um bloco HTML com tabelas por unidade."""
+    html_block = ""
     
     # Agrupa por unidade para melhor organização no corpo do e-mail
     for unit_name, group in overdue_df.groupby('unidade_operacional'):
-        html_body += f'<h2>Unidade: {unit_name} ({len(group)} item(s) atrasado(s))</h2>'
+        html_block += f'<h2>Unidade: {unit_name} ({len(group)} item(s) atrasado(s))</h2>'
         
         group_display = group.copy()
         group_display['prazo_inicial'] = pd.to_datetime(group_display['prazo_inicial'], dayfirst=True).dt.strftime('%d/%m/%Y')
@@ -79,23 +66,20 @@ def format_overdue_items_email(overdue_df: pd.DataFrame) -> str:
             'co_responsavel_email': 'Co-responsável',
             'prazo_inicial': 'Prazo Vencido'
         }
-        # Garante que a coluna 'co_responsavel_email' exista
         if 'co_responsavel_email' not in group_display.columns:
             group_display['co_responsavel_email'] = ""
 
         group_display = group_display[list(cols_to_show.keys())].rename(columns=cols_to_show)
-        html_body += group_display.to_html(index=False, border=0, na_rep='N/A')
+        html_block += group_display.to_html(index=False, border=0, na_rep='N/A')
             
-    html_body += "<p class='footer'>Este é um e-mail automático. Por favor, não responda.</p></div></body></html>"
-    return html_body
+    return html_block
 
-def send_smtp_email(html_body: str, recipients: list, config: dict):
+def send_smtp_email(subject: str, html_body: str, recipients: list, config: dict):
     """Envia um e-mail para uma lista de destinatários."""
     if not recipients:
         print("Nenhum destinatário válido fornecido. Pulando envio.")
         return
 
-    # Limpa a lista de destinatários: remove e-mails vazios, duplicados.
     valid_recipients = sorted(list(set([email for email in recipients if email and '@' in email])))
     if not valid_recipients:
         print("Nenhum destinatário válido após a limpeza. Pulando envio.")
@@ -104,7 +88,7 @@ def send_smtp_email(html_body: str, recipients: list, config: dict):
     recipient_str = ", ".join(valid_recipients)
 
     message = MIMEMultipart("alternative")
-    message["Subject"] = f"Alerta: Ações de Abrangência Atrasadas - {datetime.now().strftime('%d/%m/%Y')}"
+    message["Subject"] = subject
     message["From"] = f"Sistema de Abrangência <{config['sender_email']}>"
     message["To"] = recipient_str
     message.attach(MIMEText(html_body, "html", "utf-8"))
@@ -119,7 +103,7 @@ def send_smtp_email(html_body: str, recipients: list, config: dict):
         print(f"ERRO ao enviar e-mail para {recipient_str}: {e}")
 
 def main():
-    """Função principal que busca itens atrasados e envia e-mails consolidados por responsável."""
+    """Função principal que busca itens atrasados e envia e-mails consolidados."""
     print("Iniciando script de notificação...")
     try:
         config = get_smtp_config_from_env()
@@ -133,10 +117,7 @@ def main():
             print("Plano de ação vazio. Encerrando.")
             return
 
-        # 1. Filtra por itens com status pendente/em andamento
         pending_items = action_plan_df[action_plan_df['status'].str.lower().isin(['pendente', 'em andamento'])].copy()
-        
-        # 2. Verifica o prazo
         pending_items['prazo_dt'] = pd.to_datetime(pending_items['prazo_inicial'], errors='coerce', dayfirst=True).dt.date
         today = datetime.now().date()
         overdue_items = pending_items[pending_items['prazo_dt'] < today]
@@ -147,35 +128,41 @@ def main():
 
         print(f"Encontrados {len(overdue_items)} itens atrasados. Preparando e-mails...")
         
-        # 3. Junta com as descrições das ações
         if not blocking_actions_df.empty:
             final_df = pd.merge(overdue_items, blocking_actions_df[['id', 'descricao_acao']], left_on='id_acao_bloqueio', right_on='id', how='left')
         else:
             final_df = overdue_items
             final_df['descricao_acao'] = "Descrição da ação não encontrada"
 
-        # 4. Agrupa por responsáveis para enviar e-mails consolidados
         if 'co_responsavel_email' not in final_df.columns:
             final_df['co_responsavel_email'] = ''
-        final_df['co_responsavel_email'].fillna('', inplace=True) # Garante que não haja valores nulos
+        final_df['co_responsavel_email'].fillna('', inplace=True)
 
         grouped_by_responsible = final_df.groupby(['responsavel_email', 'co_responsavel_email'])
         
         for (resp_email, co_resp_email), group_df in grouped_by_responsible:
-            # Monta a lista de destinatários para este grupo
             recipients = [resp_email]
             if co_resp_email:
                 recipients.append(co_resp_email)
-            
-
             recipients.extend(config['receiver_emails_admin'])
-            # --- FIM DA CORREÇÃO 2 ---
             
-            # Formata o corpo do e-mail com os itens específicos deste grupo
-            email_body = format_overdue_items_email(group_df)
+            # Pega o template do e-mail
+            email_tpl = EMPLATES['overdue_actions']
             
-            # Envia o e-mail
-            send_smtp_email(email_body, recipients, config)
+            # Gera o bloco HTML dinâmico com as tabelas das unidades
+            units_html = format_units_html_block(group_df)
+
+            # Prepara o contexto para renderizar o template
+            context = {
+                "current_date": datetime.now().strftime('%d/%m/%Y'),
+                "units_html_block": units_html
+            }
+
+            # Renderiza o corpo e o assunto final
+            email_body = render_template(email_tpl['template'], context)
+            email_subject = render_template(email_tpl['subject'], context)
+            
+            send_smtp_email(email_subject, email_body, recipients, config)
         
         print("Script finalizado com sucesso.")
 
