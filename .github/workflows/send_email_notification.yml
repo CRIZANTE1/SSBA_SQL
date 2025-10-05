@@ -45,6 +45,6 @@ jobs:
 
           # --- ADIÇÃO ESSENCIAL AQUI ---
           # Passa o ID da planilha como variável de ambiente
-          MATRIX_SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          MATRIX_SPREADSHEET_ID: ${{ secrets.MATRIX_SPREADSHEET_ID }}
           
         run: python .github/scripts/email_notifier.py
