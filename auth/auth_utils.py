@@ -4,13 +4,13 @@ from operations.audit_logger import log_action
 
 def is_user_logged_in() -> bool:
     """Verifica se o usuário está logado via Google ou nosso sistema customizado (Azure)."""
-    google_logged_in = hasattr(st, 'user') and st.user.is_logged_in
+    google_logged_in = hasattr(st, 'user') and hasattr(st.user, 'email') and st.user.email is not None
     custom_logged_in = st.session_state.get('is_logged_in', False)
     return google_logged_in or custom_logged_in
 
 def get_user_email() -> str | None:
     """Retorna o e-mail do usuário logado, independentemente do provedor."""
-    if hasattr(st, 'user') and st.user.is_logged_in and hasattr(st.user, 'email'):
+    if hasattr(st, 'user') and hasattr(st.user, 'email') and st.user.email:
         return st.user.email.lower().strip()
     if st.session_state.get('is_logged_in', False):
         return st.session_state.get('user_info_custom', {}).get('email')
@@ -18,7 +18,7 @@ def get_user_email() -> str | None:
 
 def get_user_display_name() -> str:
     """Retorna o nome de exibição do usuário, independentemente do provedor."""
-    if hasattr(st, 'user') and st.user.is_logged_in and hasattr(st.user, 'name'):
+    if hasattr(st, 'user') and hasattr(st.user, 'name') and st.user.name:
         return st.user.name
     if st.session_state.get('is_logged_in', False):
         return st.session_state.get('user_info_custom', {}).get('name')

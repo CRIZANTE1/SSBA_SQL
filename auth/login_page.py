@@ -95,7 +95,7 @@ def show_logout_button():
                 if key in st.session_state:
                     del st.session_state[key]
             
-            if hasattr(st, 'user') and st.user.is_logged_in:
+            if hasattr(st, 'user') and hasattr(st.user, 'email') and st.user.email:
                 st.logout()
             else:
                 st.rerun()
