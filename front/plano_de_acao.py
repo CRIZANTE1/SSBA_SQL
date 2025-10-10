@@ -4,16 +4,11 @@ from datetime import datetime, date
 from auth.auth_utils import check_permission, get_user_role
 from operations.incident_manager import get_incident_manager
 from operations.audit_logger import log_action
-from gdrive.google_api_manager import GoogleApiManager
-from gdrive.config import ACTION_PLAN_EVIDENCE_FOLDER_ID
 from front.dashboard import convert_drive_url_to_displayable
 
 @st.cache_data(ttl=120)
 def load_action_plan_data():
-    """
-    Carrega e une os dados do plano de ação com as descrições das ações de bloqueio
-    e informações dos incidentes originais, tratando corretamente colunas de ID duplicadas.
-    """
+    """Carrega e processa dados do plano de ação"""
     incident_manager = get_incident_manager()
     action_plan_df = incident_manager.get_all_action_plans()
     blocking_actions_df = incident_manager.get_all_blocking_actions()
@@ -22,11 +17,23 @@ def load_action_plan_data():
     if action_plan_df.empty:
         return pd.DataFrame()
 
-    # Renomeia colunas de ID ANTES de fazer os merges para evitar conflitos
+    # Normaliza e converte campos de data (para evitar exceções quando há NaN/None)
+    def safe_to_datetime(series, dayfirst=False):
+        return pd.to_datetime(series, errors='coerce', dayfirst=dayfirst)
+
+    # Se existir, converte prazo_inicial e data_conclusao para formato brasileiro
+    if 'prazo_inicial' in action_plan_df.columns:
+        parsed = safe_to_datetime(action_plan_df['prazo_inicial'])
+        action_plan_df['prazo_inicial'] = parsed.dt.strftime('%d/%m/%Y').fillna('')
+
+    if 'data_conclusao' in action_plan_df.columns:
+        parsed = safe_to_datetime(action_plan_df['data_conclusao'])
+        action_plan_df['data_conclusao'] = parsed.dt.strftime('%d/%m/%Y').fillna('')
+
+    # Merge com as descrições das ações
     blocking_actions_renamed = blocking_actions_df.rename(columns={'id': 'id_acao_bloqueio_ref'})
     incidents_renamed = incidents_df.rename(columns={'id': 'id_incidente_ref'})
     
-    # 1. Merge do plano de ação com as ações de bloqueio
     merged_df = pd.merge(
         action_plan_df,
         blocking_actions_renamed[['id_acao_bloqueio_ref', 'descricao_acao', 'id_incidente']],
@@ -35,7 +42,6 @@ def load_action_plan_data():
         how='left'
     )
 
-    # 2. Merge com os incidentes
     final_df = pd.merge(
         merged_df,
         incidents_renamed[['id_incidente_ref', 'evento_resumo']],
@@ -44,17 +50,14 @@ def load_action_plan_data():
         how='left'
     )
     
-    # 3. Limpeza final e preenchimento de valores nulos
     final_df['descricao_acao'] = final_df['descricao_acao'].fillna('Descrição da ação não encontrada')
     final_df['evento_resumo'] = final_df['evento_resumo'].fillna('Incidente original não encontrado')
     
-    # Garante que as colunas opcionais existam no DataFrame
     for col in ['url_evidencia', 'detalhes_conclusao']:
         if col not in final_df.columns:
             final_df[col] = ''
         final_df[col] = final_df[col].fillna('')
 
-    # Remove colunas de referência que não são mais necessárias
     final_df = final_df.drop(columns=['id_acao_bloqueio_ref', 'id_incidente_ref'], errors='ignore')
 
     return final_df
@@ -121,15 +124,21 @@ def edit_action_dialog(item_data):
                     "detalhes_conclusao": detalhes_conclusao
                 }
                 if uploaded_evidence:
-                    api_manager = GoogleApiManager()
+                    from database.supabase_storage import SupabaseStorage
+                    storage = SupabaseStorage()
+                    
                     safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
                     file_extension = uploaded_evidence.name.split('.')[-1]
                     file_name = f"evidencia_acao_{safe_action_id}.{file_extension}"
-                    evidence_url = api_manager.upload_file(ACTION_PLAN_EVIDENCE_FOLDER_ID, uploaded_evidence, file_name)
+                    
+                    evidence_url = storage.upload_action_evidence(uploaded_evidence, file_name)
+                    
                     if evidence_url:
-                        updates["url_evidencia"] = evidence_url; st.toast("Evidência enviada com sucesso!")
+                        updates["url_evidencia"] = evidence_url
+                        st.toast("Evidência enviada com sucesso!")
                     else:
-                        st.error("Falha ao enviar a evidência. As outras alterações não foram salvas."); return
+                        st.error("Falha ao enviar a evidência. As outras alterações não foram salvas.")
+                        return
                 if new_status == "Concluído" and item_data.get('status') != 'Concluído':
                     updates["data_conclusao"] = datetime.now().strftime("%d/%m/%Y")
                 

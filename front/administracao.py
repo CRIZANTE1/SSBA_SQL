@@ -4,10 +4,10 @@ from datetime import datetime
 from gdrive.matrix_manager import get_matrix_manager
 from operations.incident_manager import get_incident_manager
 from auth.auth_utils import check_permission
-from gdrive.google_api_manager import GoogleApiManager
 from operations.audit_logger import log_action
 from AI.api_Operation import PDFQA
 from front.admin_dashboard import display_admin_summary_dashboard
+from database.supabase_storage import SupabaseStorage
 
 # --- LÓGICA DE NEGÓCIO PARA CADASTRO DE INCIDENTE ---
 
@@ -42,28 +42,22 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
                 raise ValueError("A análise da IA falhou ou não retornou o formato JSON esperado com recomendações.")
 
-            # 2. Upload para pastas separadas no Google Drive
-            from gdrive.config import PUBLIC_IMAGES_FOLDER_ID, RESTRICTED_ATTACHMENTS_FOLDER_ID
-            api_manager = GoogleApiManager()
+            # 2. Upload para o Supabase Storage
+            storage = SupabaseStorage()
 
             safe_alert_number = "".join(c for c in alert_number if c.isalnum() or c in ('-','_')).rstrip()
 
-            # Upload da foto para a pasta PÚBLICA
-            photo_url = api_manager.upload_file(
-                PUBLIC_IMAGES_FOLDER_ID, 
-                photo_file, 
-                f"foto_{safe_alert_number}.jpg"
-            )
+            # Upload da foto para o bucket público
+            photo_filename = f"foto_{safe_alert_number}.jpg"
+            photo_url = storage.upload_public_image(photo_file, photo_filename)
             
-            # Upload do anexo para a pasta RESTRITA
-            anexos_url = api_manager.upload_file(
-                RESTRICTED_ATTACHMENTS_FOLDER_ID, 
-                attachment_file, 
-                f"anexo_{safe_alert_number}_{attachment_file.name}"
-            )
+            # Upload do anexo para o bucket restrito
+            anexo_extension = attachment_file.name.split('.')[-1]
+            anexo_filename = f"anexo_{safe_alert_number}.{anexo_extension}"
+            anexos_url = storage.upload_restricted_attachment(attachment_file, anexo_filename)
 
             if not photo_url or not anexos_url:
-                raise ConnectionError("Falha no upload de um ou mais arquivos para o Google Drive.")
+                raise ConnectionError("Falha no upload de um ou mais arquivos para o Supabase Storage.")
 
             # 3. Armazena tudo no estado da sessão
             st.session_state.incident_data_for_confirmation = {

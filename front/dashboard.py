@@ -7,14 +7,14 @@ from operations.audit_logger import log_action
 from gdrive.matrix_manager import get_matrix_manager
 
 def convert_drive_url_to_displayable(url: str) -> str | None:
-    if not isinstance(url, str) or 'drive.google.com' not in url:
+    # Generalized for Supabase or any http(S) public URL.
+    if not isinstance(url, str) or not url.strip():
         return None
-    try:
-        if '/d/' in url: file_id = url.split('/d/')[1].split('/')[0]
-        elif 'id=' in url: file_id = url.split('id=')[1].split('&')[0]
-        else: return None
-        return f'https://drive.google.com/thumbnail?id={file_id}'
-    except IndexError: return None
+    url = url.strip()
+    # If it's a valid HTTP(S) URL, return it directly so Streamlit can render it.
+    if url.startswith('http://') or url.startswith('https://'):
+        return url
+    return None
 
 @st.dialog("Análise de Abrangência do Incidente", width="large")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):

@@ -2,143 +2,102 @@ import streamlit as st
 import pandas as pd
 import logging
 from datetime import date
-from operations.sheet import SheetOperations
-from gdrive.matrix_manager import get_matrix_manager
+from database.supabase_operations import SupabaseOperations
 
 logger = logging.getLogger('abrangencia_app.incident_manager')
 
 @st.cache_resource
 def get_incident_manager():
-    """
-    Retorna uma instância única (singleton) do IncidentManager para a sessão do usuário.
-    Esta é a forma recomendada de acessar o gerenciador a partir das páginas de front-end.
-    """
     return IncidentManager()
 
+
 class IncidentManager:
-    """
-    Gerencia todas as operações de dados relacionadas a incidentes, ações de bloqueio
-    e planos de ação, operando exclusivamente na Planilha Matriz (arquitetura single-tenant).
-    """
     def __init__(self):
-        """
-        Inicializa o gerenciador. A conexão com a planilha é estabelecida
-        automaticamente pela classe SheetOperations (Singleton).
-        """
-        self.sheet_ops = SheetOperations()
-        if not self.sheet_ops.spreadsheet:
-            # Erro crítico: se não há conexão, a aplicação não pode funcionar.
-            raise ConnectionError("Falha na conexão com a Planilha Principal. Verifique as configurações e permissões.")
+        self.db = SupabaseOperations()
+        if not self.db.client:
+            raise ConnectionError("Falha na conexão com o Supabase.")
 
     def get_all_incidents(self) -> pd.DataFrame:
-        """Retorna todos os incidentes da aba 'incidentes' como um DataFrame."""
-        return self.sheet_ops.get_df_from_worksheet("incidentes")
+        """Retorna todos os incidentes"""
+        return self.db.get_table_data("incidentes")
 
-    def get_incident_by_id(self, incident_id: str) -> pd.Series | None:
-        """Busca um incidente específico pelo seu ID."""
-        incidents_df = self.get_all_incidents()
-        if incidents_df.empty:
-            return None
-        
-        incident = incidents_df[incidents_df['id'] == str(incident_id)]
-        return incident.iloc[0] if not incident.empty else None
-
-    def add_incident(self, numero_alerta: str, evento_resumo: str, data_evento: date, o_que_aconteceu: str, por_que_aconteceu: str, foto_url: str, anexos_url: str) -> int | None:
-        """
-        Adiciona um novo registro de incidente na aba central 'incidentes'.
-        """
+    def add_incident(self, numero_alerta: str, evento_resumo: str, data_evento: date, 
+                     o_que_aconteceu: str, por_que_aconteceu: str, foto_url: str, anexos_url: str) -> int | None:
+        """Adiciona um novo incidente"""
         logger.info(f"Adicionando novo incidente: {numero_alerta}")
-        data_evento_str = data_evento.strftime('%d/%m/%Y')
-
-        new_incident_data = [
-            numero_alerta, evento_resumo, data_evento_str,
-            o_que_aconteceu, por_que_aconteceu, foto_url, anexos_url
-        ]
         
-        new_id = self.sheet_ops.adc_dados_aba("incidentes", new_incident_data)
-        if new_id:
-            logger.info(f"Incidente {new_id} adicionado com sucesso.")
-            st.cache_data.clear()
-        else:
-            logger.error("Falha ao adicionar incidente na planilha.")
-        return new_id
+        # Envia o objeto date diretamente — SQLAlchemy/psycopg2 lida com conversão
+        incident_data = {
+            "numero_alerta": numero_alerta,
+            "evento_resumo": evento_resumo,
+            "data_evento": data_evento,
+            "o_que_aconteceu": o_que_aconteceu,
+            "por_que_aconteceu": por_que_aconteceu,
+            "foto_url": foto_url,
+            "anexos_url": anexos_url
+        }
+        
+        result = self.db.insert_row("incidentes", incident_data)
+        return result['id'] if result else None
 
     def get_all_blocking_actions(self) -> pd.DataFrame:
-        """Retorna todas as ações de bloqueio da aba 'acoes_bloqueio'."""
-        return self.sheet_ops.get_df_from_worksheet("acoes_bloqueio")
+        """Retorna todas as ações de bloqueio"""
+        return self.db.get_table_data("acoes_bloqueio")
 
     def get_blocking_actions_by_incident(self, incident_id: str) -> pd.DataFrame:
-        """Retorna as ações de bloqueio para um ID de incidente específico."""
-        actions_df = self.get_all_blocking_actions()
-        if actions_df.empty:
-            return pd.DataFrame()
-        
-        return actions_df[actions_df['id_incidente'] == str(incident_id)]
+        """Retorna ações de bloqueio de um incidente específico"""
+        return self.db.get_by_field("acoes_bloqueio", "id_incidente", incident_id)
 
-    def add_blocking_actions_batch(self, incident_id: str, descriptions: list[str]) -> bool:
-        """
-        Adiciona múltiplas ações de bloqueio em lote para um incidente.
-        """
+    def add_blocking_actions_batch(self, incident_id: int, descriptions: list[str]) -> bool:
+        """Adiciona múltiplas ações de bloqueio"""
         if not descriptions:
             return True
-
-        logger.info(f"Adicionando {len(descriptions)} ações de bloqueio para o incidente {incident_id}.")
-        rows_to_add = [[str(incident_id), desc] for desc in descriptions]
         
-        success = self.sheet_ops.adc_dados_aba_em_lote("acoes_bloqueio", rows_to_add)
-        if success:
-            logger.info("Ações de bloqueio em lote adicionadas com sucesso.")
-            st.cache_data.clear()
-        else:
-            logger.error(f"Falha ao adicionar ações de bloqueio para o incidente {incident_id}.")
-        return success
+        actions_data = [
+            {"id_incidente": incident_id, "descricao_acao": desc}
+            for desc in descriptions
+        ]
+        
+        return self.db.insert_batch("acoes_bloqueio", actions_data)
 
     def get_all_action_plans(self) -> pd.DataFrame:
-        """Retorna todos os itens do plano de ação de abrangência da aba central."""
-        return self.sheet_ops.get_df_from_worksheet("plano_de_acao_abrangencia")
+        """Retorna todos os planos de ação"""
+        return self.db.get_table_data("plano_de_acao_abrangencia")
 
-    def add_abrangencia_action(self, id_acao_bloqueio: str, unidade_operacional: str, responsavel_email: str, co_responsavel_email: str, prazo_inicial: date, status: str) -> int | None:
-        """
-        Adiciona um novo registro na aba central 'plano_de_acao_abrangencia',
-        incluindo todas as colunas conforme definido em sheets_config.yaml
-        """
-        logger.info(f"Adicionando ação de abrangência para a ação {id_acao_bloqueio} na unidade {unidade_operacional}.")
-        prazo_str = prazo_inicial.strftime('%d/%m/%Y')
-        co_resp_email_str = co_responsavel_email if co_responsavel_email else ""
-    
-        # Ordem DEVE corresponder exatamente ao sheets_config.yaml
-        new_action_data = [
-            id_acao_bloqueio,          # id_acao_bloqueio
-            unidade_operacional,       # unidade_operacional
-            responsavel_email,         # responsavel_email
-            co_resp_email_str,         # co_responsavel_email
-            prazo_str,                 # prazo_inicial
-            status,                    # status
-            "",                        # data_conclusao (inicialmente vazia)
-            "",                        # url_evidencia (inicialmente vazia)
-            ""                         # detalhes_conclusao (inicialmente vazia)
-        ]
-    
-        new_id = self.sheet_ops.adc_dados_aba("plano_de_acao_abrangencia", new_action_data)
-        if new_id:
-            logger.info(f"Ação de abrangência {new_id} adicionada com sucesso.")
-            st.cache_data.clear()
-        else:
-            logger.error("Falha ao adicionar ação de abrangência na planilha.")
-        return new_id
+    def add_abrangencia_action(self, id_acao_bloqueio: int, unidade_operacional: str, 
+                              responsavel_email: str, co_responsavel_email: str, 
+                              prazo_inicial: date, status: str) -> int | None:
+        """Adiciona uma ação de abrangência"""
+        action_data = {
+            "id_acao_bloqueio": id_acao_bloqueio,
+            "unidade_operacional": unidade_operacional,
+            "responsavel_email": responsavel_email,
+            "co_responsavel_email": co_responsavel_email or "",
+            # Envia objeto date diretamente; driver cuida da conversão para DATE
+            "prazo_inicial": prazo_inicial,
+            "status": status,
+            "data_conclusao": None,
+            "url_evidencia": "",
+            "detalhes_conclusao": ""
+        }
+        
+        result = self.db.insert_row("plano_de_acao_abrangencia", action_data)
+        return result['id'] if result else None
 
-    def update_abrangencia_action(self, action_id: str, updates: dict) -> bool:
-        """
-        Atualiza uma linha específica na aba central 'plano_de_acao_abrangencia'.
-        """
-        logger.info(f"Atualizando ação de abrangência ID {action_id} com: {updates}")
-        success = self.sheet_ops.update_row_by_id("plano_de_acao_abrangencia", action_id, updates)
-        if success:
-            logger.info(f"Ação {action_id} atualizada com sucesso.")
-            st.cache_data.clear()
-        else:
-            logger.error(f"Falha ao atualizar a ação {action_id}.")
-        return success
+    def update_abrangencia_action(self, action_id: int, updates: dict) -> bool:
+        """Atualiza uma ação de abrangência"""
+        logger.info(f"Atualizando ação {action_id}")
+        
+        # Converte datas para formato ISO se necessário
+        if 'prazo_inicial' in updates and isinstance(updates['prazo_inicial'], str):
+            try:
+                from datetime import datetime
+                dt = datetime.strptime(updates['prazo_inicial'], "%d/%m/%Y")
+                updates['prazo_inicial'] = dt.strftime('%Y-%m-%d')
+            except:
+                pass
+        
+        return self.db.update_row("plano_de_acao_abrangencia", action_id, updates)
 
     def get_covered_incident_ids_for_unit(self, unit_name: str) -> set:
         """

@@ -1,191 +1,165 @@
 import streamlit as st
 import pandas as pd
 import logging
-import gspread
 from datetime import datetime
-from operations.sheet import SheetOperations
+from database.supabase_operations import SupabaseOperations
 from operations.audit_logger import log_action
 
 logger = logging.getLogger('abrangencia_app.matrix_manager')
 
 @st.cache_resource
 def get_matrix_manager():
-    """
-    Retorna uma instância única (singleton) do MatrixManager para a sessão do usuário.
-    """
     return MatrixManager()
 
-class MatrixManager:
-    """
-    Gerencia os dados de controle da Planilha Principal: usuários, solicitações de acesso
-    e logs de auditoria.
-    """
-    def __init__(self):
-        self.sheet_ops = SheetOperations()
-        if not self.sheet_ops.spreadsheet:
-            raise ConnectionError("Falha na conexão com a Planilha Principal.")
 
-    @st.cache_data(ttl=300)
-    def _get_df(_self, sheet_name: str) -> pd.DataFrame:
-        logger.info(f"Carregando dados da aba '{sheet_name}' (pode usar cache)...")
-        return _self.sheet_ops.get_df_from_worksheet(sheet_name)
+class MatrixManager:
+    def __init__(self):
+        self.db = SupabaseOperations()
+        if not self.db.client:
+            raise ConnectionError("Falha na conexão com o Supabase.")
 
     @st.cache_data(ttl=300)
     def get_utilities_users(_self) -> tuple[dict, list]:
-        """
-        Carrega os usuários da aba 'utilities' e retorna um dicionário
-        mapeando nome para e-mail e uma lista de nomes.
-        """
-        utilities_df = _self._get_df("utilities")
-        if utilities_df.empty or 'nome' not in utilities_df.columns or 'email' not in utilities_df.columns:
+        """Carrega usuários da tabela utilities"""
+        utilities_df = _self.db.get_table_data("utilities")
+        
+        if utilities_df.empty or 'nome' not in utilities_df.columns:
             return {}, []
         
-        utilities_df.dropna(subset=['nome', 'email'], inplace=True)
+        utilities_df = utilities_df.dropna(subset=['nome', 'email'])
         utilities_df = utilities_df[utilities_df['nome'].str.strip() != '']
-    
-        user_map = pd.Series(utilities_df.email.values, index=utilities_df.nome).to_dict()
         
+        user_map = pd.Series(utilities_df.email.values, index=utilities_df.nome).to_dict()
         user_names = sorted(utilities_df['nome'].tolist())
         
         return user_map, user_names
 
-    # --- Métodos de Usuários ---
-
     def get_all_users_df(self) -> pd.DataFrame:
-        return self._get_df("usuarios")
-        
-    def get_all_units(self) -> list[str]:
-        """
-        Retorna uma lista de nomes de unidades operacionais únicas a partir da
-        planilha de usuários, excluindo o valor '*' do admin global.
-        """
-        users_df = self.get_all_users_df()
-        if users_df.empty or 'unidade_associada' not in users_df.columns:
-            return []
-        units = users_df['unidade_associada'].dropna().unique()
-        unit_list = sorted([str(unit) for unit in units if unit and str(unit).strip() and str(unit) != '*'])
-        return unit_list
+        """Retorna todos os usuários"""
+        return self.db.get_table_data("usuarios")
 
     def get_user_info(self, email: str) -> dict | None:
-        users_df = self.get_all_users_df()
-        if users_df.empty or 'email' not in users_df.columns:
-            return None
-        user_info = users_df[users_df['email'].str.lower().str.strip() == email.lower().strip()]
-        return user_info.iloc[0].to_dict() if not user_info.empty else None
+        """Busca informações de um usuário pelo email"""
+        users_df = self.db.get_by_field("usuarios", "email", email.lower().strip())
+        return users_df.iloc[0].to_dict() if not users_df.empty else None
 
     def add_user(self, user_data: list) -> bool:
-        logger.info(f"Adicionando novo usuário: {user_data[0]}")
-        success = self.sheet_ops.adc_linha_simples("usuarios", user_data)
-        if success:
+        """Adiciona um novo usuário"""
+        logger.info(f"Adicionando usuário: {user_data[0]}")
+        
+        user_dict = {
+            "email": user_data[0],
+            "nome": user_data[1],
+            "role": user_data[2],
+            "unidade_associada": user_data[3]
+        }
+        
+        result = self.db.insert_row("usuarios", user_dict)
+        if result:
             log_action("ADD_USER", {"email": user_data[0], "role": user_data[2]})
             st.cache_data.clear()
-        return success
+        return result is not None
 
     def update_user(self, email: str, updates: dict) -> bool:
-        logger.info(f"Tentando atualizar usuário '{email}' com dados: {updates}")
-        try:
-            worksheet = self.sheet_ops.spreadsheet.worksheet("usuarios")
-            cell = worksheet.find(email, in_column=1)
-            if not cell:
-                logger.warning(f"Usuário com e-mail '{email}' não encontrado para atualização.")
-                return False
-            row_number = cell.row
-            header = worksheet.row_values(1)
-            cells_to_update = []
-            for col_name, new_value in updates.items():
-                if col_name in header:
-                    col_index = header.index(col_name) + 1
-                    cells_to_update.append(gspread.Cell(row_number, col_index, str(new_value)))
-            if cells_to_update:
-                worksheet.update_cells(cells_to_update, value_input_option='USER_ENTERED')
-                log_action("UPDATE_USER", {"email": email, "updates": updates})
-                st.cache_data.clear()
-                return True
+        """Atualiza um usuário existente"""
+        users_df = self.db.get_by_field("usuarios", "email", email)
+        
+        if users_df.empty:
+            logger.warning(f"Usuário {email} não encontrado")
             return False
-        except Exception as e:
-            logger.error(f"Erro ao atualizar usuário '{email}': {e}", exc_info=True)
-            return False
+        
+        user_id = users_df.iloc[0]['id']
+        success = self.db.update_row("usuarios", user_id, updates)
+        
+        if success:
+            log_action("UPDATE_USER", {"email": email, "updates": updates})
+            st.cache_data.clear()
+        
+        return success
 
     def remove_user(self, user_email: str) -> bool:
-        logger.info(f"Tentando remover usuário: {user_email}")
-        try:
-            worksheet = self.sheet_ops.spreadsheet.worksheet("usuarios")
-            cell = worksheet.find(user_email.strip(), in_column=1)
-            if not cell:
-                logger.warning(f"Usuário com e-mail '{user_email}' não encontrado para remoção.")
-                return False
-            success = self.sheet_ops.excluir_linha_por_indice("usuarios", cell.row)
-            if success:
-                log_action("REMOVE_USER", {"email": user_email})
-                st.cache_data.clear()
-            return success
-        except Exception as e:
-            logger.error(f"Erro ao remover usuário '{user_email}': {e}", exc_info=True)
+        """Remove um usuário"""
+        users_df = self.db.get_by_field("usuarios", "email", user_email.strip())
+        
+        if users_df.empty:
             return False
+        
+        user_id = users_df.iloc[0]['id']
+        success = self.db.delete_row("usuarios", user_id)
+        
+        if success:
+            log_action("REMOVE_USER", {"email": user_email})
+            st.cache_data.clear()
+        
+        return success
 
-    # --- Métodos de Solicitação de Acesso ---
+    def get_all_units(self) -> list[str]:
+        """Retorna lista de unidades operacionais"""
+        users_df = self.get_all_users_df()
+        
+        if users_df.empty or 'unidade_associada' not in users_df.columns:
+            return []
+        
+        units = users_df['unidade_associada'].dropna().unique()
+        return sorted([str(u) for u in units if u and str(u).strip() and str(u) != '*'])
 
     def add_access_request(self, email: str, name: str, unit: str) -> bool:
-        requests_df = self.get_pending_access_requests()
-        if not requests_df.empty and not requests_df[requests_df['email'].str.lower() == email.lower()].empty:
-            logger.warning(f"Solicitação de acesso duplicada para {email}. Nenhuma ação tomada.")
-            return True
-        logger.info(f"Registrando nova solicitação de acesso para {email} da unidade {unit}.")
-        request_data = [
-            email, name, unit, datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "pendente"
-        ]
-        return self.sheet_ops.adc_linha_simples("solicitacoes_acesso", request_data)
+        """Adiciona uma solicitação de acesso"""
+        request_data = {
+            "email": email,
+            "nome": name,
+            "unidade_solicitada": unit,
+            "data_solicitacao": datetime.now().isoformat(),
+            "status": "pendente"
+        }
+        
+        return self.db.insert_row("solicitacoes_acesso", request_data) is not None
 
     def get_pending_access_requests(self) -> pd.DataFrame:
-        requests_df = self._get_df("solicitacoes_acesso")
-        if requests_df.empty or 'status' not in requests_df.columns:
-            return pd.DataFrame()
-        return requests_df[requests_df['status'].str.lower() == 'pendente']
+        """Retorna solicitações pendentes"""
+        return self.db.get_by_field("solicitacoes_acesso", "status", "pendente")
 
     def approve_access_request(self, email: str, role: str) -> bool:
+        """Aprova uma solicitação de acesso"""
         requests_df = self.get_pending_access_requests()
         request_info = requests_df[requests_df['email'].str.lower() == email.lower()]
+        
         if request_info.empty:
-            logger.error(f"Tentativa de aprovar solicitação para {email}, mas não foi encontrada.")
             return False
+        
         user_data = request_info.iloc[0]
         new_user = [user_data['email'], user_data['nome'], role, user_data['unidade_solicitada']]
+        
         if not self.add_user(new_user):
-            logger.error(f"Falha ao adicionar o usuário {email} após aprovação.")
             return False
-        try:
-            worksheet = self.sheet_ops.spreadsheet.worksheet("solicitacoes_acesso")
-            cell = worksheet.find(email, in_column=1)
-            if cell:
-                worksheet.update_cell(cell.row, 5, 'aprovado')
-                log_action("APPROVE_ACCESS_REQUEST", {"email": email, "assigned_role": role})
-                st.cache_data.clear()
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Erro ao atualizar status da solicitação para {email}: {e}")
-            return False
+        
+        # Atualiza status da solicitação
+        request_id = user_data['id']
+        success = self.db.update_row("solicitacoes_acesso", request_id, {"status": "aprovado"})
+        
+        if success:
+            log_action("APPROVE_ACCESS_REQUEST", {"email": email, "assigned_role": role})
+            st.cache_data.clear()
+        
+        return success
 
     def reject_access_request(self, email: str) -> bool:
-        """Rejeita uma solicitação de acesso, atualizando seu status para 'rejeitado'."""
-        logger.info(f"Rejeitando solicitação de acesso para {email}")
-        try:
-            worksheet = self.sheet_ops.spreadsheet.worksheet("solicitacoes_acesso")
-            # Procura na coluna de e-mails (coluna 1)
-            cell = worksheet.find(email, in_column=1)
-            if cell:
-                # Atualiza a coluna de status (coluna 5) para 'rejeitado'
-                worksheet.update_cell(cell.row, 5, 'rejeitado')
-                log_action("REJECT_ACCESS_REQUEST", {"email": email})
-                st.cache_data.clear()
-                return True
-            logger.warning(f"Não foi possível encontrar a solicitação para {email} para rejeitar.")
+        """Rejeita uma solicitação de acesso"""
+        requests_df = self.get_pending_access_requests()
+        request_info = requests_df[requests_df['email'].str.lower() == email.lower()]
+        
+        if request_info.empty:
             return False
-        except Exception as e:
-            logger.error(f"Erro ao rejeitar a solicitação para {email}: {e}")
-            return False
-
-    # --- Métodos de Auditoria ---
+        
+        request_id = request_info.iloc[0]['id']
+        success = self.db.update_row("solicitacoes_acesso", request_id, {"status": "rejeitado"})
+        
+        if success:
+            log_action("REJECT_ACCESS_REQUEST", {"email": email})
+            st.cache_data.clear()
+        
+        return success
 
     def get_audit_logs(self) -> pd.DataFrame:
-        return self._get_df("log_auditoria")
+        """Retorna os logs de auditoria"""
+        return self.db.get_table_data("log_auditoria")

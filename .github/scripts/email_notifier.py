@@ -16,7 +16,7 @@ try:
     if root_dir not in sys.path:
         sys.path.append(root_dir)
     
-    from operations.sheet import SheetOperations
+    from database.supabase_operations import SupabaseOperations
     from email_templates import EMPLATES
 except ImportError as e:
     print(f"Erro de importação: {e}")
@@ -156,11 +156,10 @@ def main():
     print("Iniciando script de notificação...")
     try:
         config = get_smtp_config_from_env()
-        sheet_ops = SheetOperations()
-
-        print("Carregando dados da Planilha Matriz...")
-        action_plan_df = sheet_ops.get_df_from_worksheet("plano_de_acao_abrangencia")
-        blocking_actions_df = sheet_ops.get_df_from_worksheet("acoes_bloqueio")
+        ops = SupabaseOperations()
+        print("Carregando dados das tabelas no banco de dados...")
+        action_plan_df = ops.get_table_data("plano_de_acao_abrangencia")
+        blocking_actions_df = ops.get_table_data("acoes_bloqueio")
 
         if action_plan_df.empty:
             print("Plano de ação vazio. Encerrando.")

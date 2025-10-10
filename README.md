@@ -22,6 +22,10 @@ Este é um aplicativo web construído com Streamlit e Python, projetado para ger
 - **Base de Dados:** Google Sheets
 - **Armazenamento de Arquivos:** Google Drive
 - **Manipulação de Dados:** Pandas
+ - **Análise de IA:** Google Gemini (pode ser substituído por outro provedor)
+ - **Base de Dados:** Supabase (Postgres) — substituiu Google Sheets
+ - **Armazenamento de Arquivos:** Supabase Storage — substituiu Google Drive
+ - **Manipulação de Dados:** Pandas
 
 ## 🚀 Guia de Instalação e Configuração
 
@@ -58,18 +62,14 @@ cd SSBA_VIBRA
 pip install -r requirements.txt
 ```
 
-### 5. Configure as Credenciais do Google
+### 5. Credenciais — Supabase
 
-O sistema precisa de autorização para acessar o Google Sheets e o Google Drive.
+Este projeto foi migrado para usar Supabase (Postgres + Storage). Para executar a versão atual você deve fornecer credenciais do Supabase via:
 
-1.  **Crie um Projeto no Google Cloud:** Se ainda não tiver um, crie um projeto no [Google Cloud Console](https://console.cloud.google.com/).
-2.  **Ative as APIs:** No seu projeto, ative a **Google Drive API** e a **Google Sheets API**.
-3.  **Crie uma Conta de Serviço:** Vá para "Credenciais", clique em "Criar Credenciais" e selecione "Conta de Serviço". Dê um nome a ela e conceda o papel de "Editor".
-4.  **Gere uma Chave JSON:** Após criar a conta de serviço, vá até ela, clique na aba "Chaves", "Adicionar Chave" e crie uma nova chave do tipo **JSON**. O download de um arquivo será iniciado.
-5.  **Posicione o Arquivo:** Renomeie o arquivo JSON baixado para `credentials.json` e coloque-o dentro da pasta `gdrive/` do projeto.
-6.  **Compartilhe os Recursos:**
-    *   Anote o e-mail da conta de serviço (algo como `nome-da-conta@seu-projeto.iam.gserviceaccount.com`).
-    *   Compartilhe a **Planilha Matriz** e a **Pasta Central de Alertas no Google Drive** com este e-mail, concedendo permissão de "Editor".
+- Streamlit Secrets: `st.secrets['database']['connection_string']`, `st.secrets['supabase']['url']`, `st.secrets['supabase']['key']`
+- Ou variáveis de ambiente: `DATABASE_CONNECTION_STRING`, `SUPABASE_URL`, `SUPABASE_KEY`
+
+Antes de rodar a aplicação, crie no Supabase as tabelas e buckets necessários (veja o diretório `database/` para exemplos e scripts SQL). Ajuste as políticas de acesso dos buckets conforme sua necessidade (público vs privado).
 
 ### 6. Configure os IDs no Projeto
 
