@@ -4,7 +4,7 @@ from datetime import date, datetime
 from auth.auth_utils import check_permission
 from operations.incident_manager import get_incident_manager, IncidentManager
 from operations.audit_logger import log_action
-from gdrive.matrix_manager import get_matrix_manager
+from database.matrix_manager import get_matrix_manager
 
 def convert_drive_url_to_displayable(url: str) -> str | None:
     # Generalized for Supabase or any http(S) public URL.

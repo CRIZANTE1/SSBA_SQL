@@ -12,7 +12,7 @@ def load_comprehensive_admin_data():
     2. Ações de planos de ação com prazo vencido.
     """
     from operations.incident_manager import get_incident_manager
-    from gdrive.matrix_manager import get_matrix_manager
+    from database.matrix_manager import get_matrix_manager
 
     incident_manager = get_incident_manager()
     matrix_manager = get_matrix_manager()

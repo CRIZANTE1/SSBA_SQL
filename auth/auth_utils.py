@@ -48,7 +48,6 @@ def authenticate_user() -> bool:
         st.session_state.role = user_info.get('role', 'viewer')
         unit_name_assoc = user_info.get('unidade_associada', 'N/A')
         st.session_state.unit_name = 'Global' if unit_name_assoc == '*' else unit_name_assoc
-        st.session_state.spreadsheet_id = SPREADSHEET_ID
         st.session_state.authenticated_user_email = user_email
         st.session_state.access_status = "authorized"
         return True
