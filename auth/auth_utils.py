@@ -1,7 +1,6 @@
 import streamlit as st
-from gdrive.matrix_manager import get_matrix_manager
+from database.matrix_manager import get_matrix_manager
 from operations.audit_logger import log_action
-from gdrive.config import SPREADSHEET_ID
 
 def is_user_logged_in() -> bool:
     """Verifica se o usuário está logado via Google ou nosso sistema customizado (Azure)."""

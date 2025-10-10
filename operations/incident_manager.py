@@ -22,19 +22,25 @@ class IncidentManager:
         return self.db.get_table_data("incidentes")
 
     def add_incident(self, numero_alerta: str, evento_resumo: str, data_evento: date, 
-                     o_que_aconteceu: str, por_que_aconteceu: str, foto_url: str, anexos_url: str) -> int | None:
-        """Adiciona um novo incidente"""
+                     o_que_aconteceu: str, por_que_aconteceu: str, foto_url: str, 
+                     anexos_url: str) -> int | None:
+        """Adiciona um novo incidente com validação"""
+        
+        # Validar inputs
+        if not all([numero_alerta, evento_resumo, data_evento]):
+            logger.error("Campos obrigatórios ausentes")
+            return None
+        
         logger.info(f"Adicionando novo incidente: {numero_alerta}")
         
-        # Envia o objeto date diretamente — SQLAlchemy/psycopg2 lida com conversão
         incident_data = {
-            "numero_alerta": numero_alerta,
-            "evento_resumo": evento_resumo,
+            "numero_alerta": str(numero_alerta).strip(),
+            "evento_resumo": str(evento_resumo).strip(),
             "data_evento": data_evento,
-            "o_que_aconteceu": o_que_aconteceu,
-            "por_que_aconteceu": por_que_aconteceu,
-            "foto_url": foto_url,
-            "anexos_url": anexos_url
+            "o_que_aconteceu": str(o_que_aconteceu).strip(),
+            "por_que_aconteceu": str(por_que_aconteceu).strip(),
+            "foto_url": str(foto_url).strip() if foto_url else "",
+            "anexos_url": str(anexos_url).strip() if anexos_url else ""
         }
         
         result = self.db.insert_row("incidentes", incident_data)

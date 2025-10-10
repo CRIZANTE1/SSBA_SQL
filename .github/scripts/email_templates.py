@@ -1,5 +1,5 @@
 
-EMPLATES = {
+TEMPLATES = {
     'overdue_actions': {
         'subject': '⚠️ Lembrete: Ações de Abrangência Atrasadas sob sua responsabilidade - {{current_date}}',
         'template': '''

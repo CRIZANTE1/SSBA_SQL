@@ -111,7 +111,7 @@ def display_incident_registration_tab():
         with st.form("confirm_incident_form"):
             col1, col2 = st.columns([1, 2])
             with col1:
-                st.image(data['photo_bytes'], caption="Foto do Incidente", width='stretch')
+                st.image(data['photo_bytes'], caption="Foto do Incidente", use_column_width=True)
             
             with col2:
                 edited_evento_resumo = st.text_input("Resumo do Evento", value=data.get('evento_resumo', ''))
@@ -126,7 +126,7 @@ def display_incident_registration_tab():
             
             st.markdown("##### Recomendações / Ações de Bloqueio Sugeridas")
             recomendacoes_df = pd.DataFrame(data.get('recomendacoes', []), columns=["Descrição da Ação"])
-            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", width='stretch') # CORRIGIDO
+            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", use_container_width=True)
 
             confirm_button = st.form_submit_button("Confirmar e Salvar Alerta Completo")
 
@@ -234,13 +234,13 @@ def show_admin_page():
         all_users_df = matrix_manager.get_all_users_df()
         if not all_users_df.empty:
             st.write("Clique em uma linha para editar ou remover um usuário.")
-            selected_user = st.dataframe(all_users_df, width='stretch', hide_index=True, on_select="rerun", selection_mode="single-row")
+            selected_user = st.dataframe(all_users_df, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
             if selected_user.selection.rows:
                 user_to_manage = all_users_df.iloc[selected_user.selection.rows[0]].to_dict()
                 st.subheader(f"Ações para: {user_to_manage['nome']}")
                 col1, col2 = st.columns(2)
-                if col1.button("✏️ Editar Usuário", width='stretch'): user_dialog(user_to_manage)
-                if col2.button("🗑️ Remover Usuário", type="primary", width='stretch'):
+                if col1.button("✏️ Editar Usuário", use_container_width=True): user_dialog(user_to_manage)
+                if col2.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
                     if matrix_manager.remove_user(user_to_manage['email']):
                         st.success(f"Usuário '{user_to_manage['email']}' removido."); st.rerun()
                     else: st.error("Falha ao remover usuário.")
@@ -251,7 +251,7 @@ def show_admin_page():
         matrix_manager = get_matrix_manager()
         logs_df = matrix_manager.get_audit_logs()
         if not logs_df.empty:
-            st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), width='stretch', hide_index=True)
+            st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), use_container_width=True, hide_index=True)
         else: st.info("Nenhum registro de log encontrado.")
 
     with tab_requests:
@@ -268,12 +268,12 @@ def show_admin_page():
                     col1.text_input("E-mail", value=row['email'], disabled=True, key=f"email_{index}")
                     col2.text_input("Unidade", value=row['unidade_solicitada'], disabled=True, key=f"unit_{index}")
                     role_to_assign = col3.selectbox("Definir Papel", options=["viewer", "editor", "admin"], index=0, key=f"role_{index}")
-                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", width='stretch'):
+                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", use_container_width=True):
                         with st.spinner(f"Aprovando {row['email']}..."):
                             if matrix_manager.approve_access_request(row['email'], role_to_assign):
                                 st.success(f"Usuário {row['email']} aprovado!"); st.rerun()
                             else: st.error(f"Falha ao aprovar {row['email']}.")
-                    if col_reject.button("Rejeitar", key=f"reject_{index}", width='stretch'):
+                    if col_reject.button("Rejeitar", key=f"reject_{index}", use_container_width=True):
                         with st.spinner(f"Rejeitando {row['email']}..."):
                             if matrix_manager.reject_access_request(row['email']):
                                 st.warning(f"Solicitação de {row['email']} rejeitada."); st.rerun()

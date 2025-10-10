@@ -99,7 +99,7 @@ class SupabaseOperations:
             logger.error(f"Erro ao inserir na tabela '{table_name}': {e}")
             return None
 
-def insert_batch(self, table_name: str, data_list: list[dict]) -> bool:
+    def insert_batch(self, table_name: str, data_list: list[dict]) -> bool:
         """Insere múltiplas linhas de uma vez (com RLS aplicado)"""
         if not self.engine or not data_list:
             return False

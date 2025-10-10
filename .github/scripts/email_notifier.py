@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 try:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.abspath(os.path.join(script_dir, '..', '..'))
+    sys.path.append(root_dir)  # Adiciona raiz ao path para imports
+
+from email_templates import TEMPLATES  # Corrigido de EMPLATES
     if root_dir not in sys.path:
         sys.path.append(root_dir)
     

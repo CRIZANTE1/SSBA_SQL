@@ -13,9 +13,11 @@ def get_matrix_manager():
 
 
 class MatrixManager:
+    """Gerencia operações de usuários, unidades e solicitações de acesso"""
+    
     def __init__(self):
         self.db = SupabaseOperations()
-        if not self.db.client:
+        if not self.db.engine:
             raise ConnectionError("Falha na conexão com o Supabase.")
 
     @st.cache_data(ttl=300)
@@ -40,7 +42,11 @@ class MatrixManager:
 
     def get_user_info(self, email: str) -> dict | None:
         """Busca informações de um usuário pelo email"""
-        users_df = self.db.get_by_field("usuarios", "email", email.lower().strip())
+        if not email:
+            return None
+        
+        email_clean = str(email).lower().strip()
+        users_df = self.db.get_by_field("usuarios", "email", email_clean)
         return users_df.iloc[0].to_dict() if not users_df.empty else None
 
     def add_user(self, user_data: list) -> bool:
@@ -133,7 +139,6 @@ class MatrixManager:
         if not self.add_user(new_user):
             return False
         
-        # Atualiza status da solicitação
         request_id = user_data['id']
         success = self.db.update_row("solicitacoes_acesso", request_id, {"status": "aprovado"})
         
