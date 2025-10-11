@@ -13,15 +13,14 @@ from database.supabase_storage import SupabaseStorage
 
 def analyze_incident_document(attachment_file, photo_file, alert_number):
     """
-    Orquestra a análise com IA e faz o upload dos arquivos.
-    Os nomes serão gerados automaticamente usando hash.
+    Orquestra APENAS a análise com IA. Os uploads serão feitos após a confirmação.
     """
     st.session_state.processing = True
     st.session_state.error = None
     st.session_state.analysis_complete = False
 
     try:
-        with st.spinner("Analisando documento com IA e fazendo upload dos arquivos..."):
+        with st.spinner("Analisando documento com IA..."):
             # 1. Análise com IA
             api_op = PDFQA()
             prompt = """
@@ -41,25 +40,17 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
                 raise ValueError("A análise da IA falhou ou não retornou o formato JSON esperado com recomendações.")
 
-            # 2. Upload para o Supabase Storage (nomes gerados automaticamente com hash)
-            storage = SupabaseStorage()
-
-            # Upload da foto (nome gerado automaticamente)
-            photo_url = storage.upload_public_image(photo_file)
-            
-            # Upload do anexo (nome gerado automaticamente)
-            anexos_url = storage.upload_restricted_attachment(attachment_file)
-
-            if not photo_url or not anexos_url:
-                raise ConnectionError("Falha no upload de um ou mais arquivos para o Supabase Storage.")
-
-            # 3. Armazena tudo no estado da sessão
+            # 2. Armazena os dados DA IA e os ARQUIVOS para upload posterior
             st.session_state.incident_data_for_confirmation = {
                 **analysis_result,
                 "numero_alerta": alert_number,
-                "foto_url": photo_url,
-                "anexos_url": anexos_url,
-                "photo_bytes": photo_file.getvalue()
+                # Armazena os arquivos em memória para upload depois
+                "photo_file_bytes": photo_file.getvalue(),
+                "photo_file_name": photo_file.name,
+                "photo_file_type": photo_file.type,
+                "attachment_file_bytes": attachment_file.getvalue(),
+                "attachment_file_name": attachment_file.name,
+                "attachment_file_type": attachment_file.type
             }
             st.session_state.analysis_complete = True
             log_action("AI_ANALYSIS_SUCCESS", {"alert_number": alert_number})
@@ -69,7 +60,7 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
         log_action("AI_ANALYSIS_FAILURE", {"alert_number": alert_number, "error": str(e)})
     finally:
         st.session_state.processing = False
-        
+
 # --- COMPONENTES DA UI ---
 
 def display_incident_registration_tab():
@@ -85,7 +76,7 @@ def display_incident_registration_tab():
         attachment_file = st.file_uploader("Documento de Análise (PDF)", type="pdf")
         photo_file = st.file_uploader("Foto do Incidente (JPG/PNG)", type=["jpg", "png"])
         
-        submitted = st.form_submit_button("Analisar e Fazer Upload", type="primary")
+        submitted = st.form_submit_button("Analisar com IA", type="primary")
 
         if submitted:
             if not all([alert_number, attachment_file, photo_file]):
@@ -105,7 +96,8 @@ def display_incident_registration_tab():
         with st.form("confirm_incident_form"):
             col1, col2 = st.columns([1, 2])
             with col1:
-                st.image(data['photo_bytes'], caption="Foto do Incidente", use_column_width=True)
+                # Mostra a foto em memória
+                st.image(data['photo_file_bytes'], caption="Foto do Incidente", use_column_width=True)
             
             with col2:
                 edited_evento_resumo = st.text_input("Resumo do Evento", value=data.get('evento_resumo', ''))
@@ -128,7 +120,31 @@ def display_incident_registration_tab():
                 if not all([edited_evento_resumo, edited_data_evento, edited_o_que_aconteceu]) or edited_recomendacoes.empty:
                     st.error("Todos os campos de texto e a lista de recomendações devem ser preenchidos.")
                 else:
-                    with st.spinner("Salvando na Planilha Matriz..."):
+                    with st.spinner("Fazendo upload dos arquivos e salvando no banco de dados..."):
+                        # AGORA faz o upload dos arquivos
+                        from io import BytesIO
+                        storage = SupabaseStorage()
+                        
+                        # Reconstrói os objetos de arquivo a partir dos bytes armazenados
+                        photo_file_obj = BytesIO(data['photo_file_bytes'])
+                        photo_file_obj.name = data['photo_file_name']
+                        photo_file_obj.type = data['photo_file_type']
+                        
+                        attachment_file_obj = BytesIO(data['attachment_file_bytes'])
+                        attachment_file_obj.name = data['attachment_file_name']
+                        attachment_file_obj.type = data['attachment_file_type']
+                        
+                        # Upload da foto
+                        photo_url = storage.upload_public_image(photo_file_obj)
+                        
+                        # Upload do anexo
+                        anexos_url = storage.upload_restricted_attachment(attachment_file_obj)
+                        
+                        if not photo_url or not anexos_url:
+                            st.error("Falha no upload de um ou mais arquivos para o Supabase Storage.")
+                            return
+                        
+                        # Salva no banco de dados
                         incident_manager = get_incident_manager()
                         
                         new_incident_id = incident_manager.add_incident(
@@ -137,8 +153,8 @@ def display_incident_registration_tab():
                             data_evento=edited_data_evento,
                             o_que_aconteceu=edited_o_que_aconteceu,
                             por_que_aconteceu=edited_por_que_aconteceu,
-                            foto_url=data['foto_url'],
-                            anexos_url=data['anexos_url']
+                            foto_url=photo_url,
+                            anexos_url=anexos_url
                         )
 
                         if new_incident_id:
@@ -146,8 +162,9 @@ def display_incident_registration_tab():
                             success_actions = incident_manager.add_blocking_actions_batch(new_incident_id, recomendacoes_list)
                             
                             if success_actions:
-                                st.success(f"Alerta '{edited_evento_resumo}' salvo com sucesso!")
+                                st.success(f"✅ Alerta '{edited_evento_resumo}' salvo com sucesso!")
                                 log_action("REGISTER_INCIDENT", {"incident_id": new_incident_id, "alert_number": data['numero_alerta']})
+                                # Limpa o estado
                                 for key in ['analysis_complete', 'incident_data_for_confirmation', 'error', 'processing']:
                                     if key in st.session_state:
                                         del st.session_state[key]
