@@ -20,7 +20,10 @@ def log_action(action: str, details: dict):
         }
         
         db = SupabaseOperations()
-        db.insert_row("log_auditoria", log_data)
+        if user_email == 'system':
+            db.insert_row_without_rls("log_auditoria", log_data)
+        else:
+            db.insert_row("log_auditoria", log_data)
         
         print(f"LOG SUCCESS: Action '{action}' by '{user_email}' logged.")
     except Exception as e:

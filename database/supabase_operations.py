@@ -97,6 +97,34 @@ class SupabaseOperations:
             logger.error(f"Erro ao inserir na tabela '{table_name}': {e}")
             return None
 
+    def insert_row_without_rls(self, table_name: str, data: dict) -> dict | None:
+        """Insere uma linha (sem RLS aplicado)"""
+        if not self.engine:
+            return None
+        
+        try:
+            engine = self.engine
+            columns = ', '.join(data.keys())
+            placeholders = ', '.join([f':{key}' for key in data.keys()])
+            query = text(f"""
+                INSERT INTO {table_name} ({columns})
+                VALUES ({placeholders})
+                RETURNING *
+            """)
+            
+            with engine.connect() as conn:
+                result = conn.execute(query, data)
+                conn.commit()
+                row = result.fetchone()
+                
+                if row:
+                    return dict(row._mapping)
+            
+            return None
+        except Exception as e:
+            logger.error(f"Erro ao inserir na tabela '{table_name}' sem RLS: {e}")
+            return None
+
     def insert_batch(self, table_name: str, data_list: list[dict]) -> bool:
         """Insere múltiplas linhas de uma vez (com RLS aplicado)"""
         if not self.engine or not data_list:
