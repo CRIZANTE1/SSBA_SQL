@@ -317,7 +317,7 @@ service_role_key = "sua_service_role_key_aqui"
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("🔑 Testar Anon Key", use_container_width=True):
+            if st.button("🔑 Testar Anon Key", width='stretch'):
                 with st.spinner("Testando..."):
                     try:
                         client = create_client(supabase_url, anon_key)
@@ -329,7 +329,7 @@ service_role_key = "sua_service_role_key_aqui"
                         st.error(f"❌ Anon Key falhou:\n\n{e}")
         
         with col2:
-            if st.button("🔐 Testar Service Role Key", use_container_width=True, type="primary"):
+            if st.button("🔐 Testar Service Role Key", width='stretch', type="primary"):
                 with st.spinner("Testando..."):
                     try:
                         client = create_client(supabase_url, service_key)
@@ -341,7 +341,7 @@ service_role_key = "sua_service_role_key_aqui"
                         st.error(f"❌ Service Role Key falhou:\n\n{e}")
         
         with col3:
-            if st.button("📤 Testar Upload", use_container_width=True):
+            if st.button("📤 Testar Upload", width='stretch'):
                 with st.spinner("Testando upload..."):
                     try:
                         client = create_client(supabase_url, service_key)
@@ -367,7 +367,7 @@ service_role_key = "sua_service_role_key_aqui"
                     except Exception as e:
                         st.error(f"❌ Upload falhou:\n\n{e}")
         
-        if st.button("🖼️ Testar Upload de Imagem Real", use_container_width=True):
+        if st.button("🖼️ Testar Upload de Imagem Real", width='stretch'):
             with st.spinner("Testando upload de imagem..."):
                 try:
                     client = create_client(supabase_url, service_key)
@@ -399,7 +399,7 @@ service_role_key = "sua_service_role_key_aqui"
         st.divider()
         st.subheader("Teste do SupabaseStorage (classe do app)")
         
-        if st.button("🧪 Testar SupabaseStorage", use_container_width=True):
+        if st.button("🧪 Testar SupabaseStorage", width='stretch'):
             with st.spinner("Testando a classe SupabaseStorage..."):
                 try:
                     from database.supabase_storage import SupabaseStorage
@@ -471,8 +471,8 @@ def show_admin_page():
                 user_to_manage = all_users_df.iloc[selected_user.selection.rows[0]].to_dict()
                 st.subheader(f"Ações para: {user_to_manage['nome']}")
                 col1, col2 = st.columns(2)
-                if col1.button("✏️ Editar Usuário", use_container_width=True): user_dialog(user_to_manage)
-                if col2.button("🗑️ Remover Usuário", type="primary", use_container_width=True):
+                if col1.button("✏️ Editar Usuário", width='stretch'): user_dialog(user_to_manage)
+                if col2.button("🗑️ Remover Usuário", type="primary", width='stretch'):
                     if matrix_manager.remove_user(user_to_manage['email']):
                         st.success(f"Usuário '{user_to_manage['email']}' removido."); st.rerun()
                     else: st.error("Falha ao remover usuário.")
@@ -500,12 +500,12 @@ def show_admin_page():
                     col1.text_input("E-mail", value=row['email'], disabled=True, key=f"email_{index}")
                     col2.text_input("Unidade", value=row['unidade_solicitada'], disabled=True, key=f"unit_{index}")
                     role_to_assign = col3.selectbox("Definir Papel", options=["viewer", "editor", "admin"], index=0, key=f"role_{index}")
-                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", use_container_width=True):
+                    if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", width='stretch'):
                         with st.spinner(f"Aprovando {row['email']}..."):
                             if matrix_manager.approve_access_request(row['email'], role_to_assign):
                                 st.success(f"Usuário {row['email']} aprovado!"); st.rerun()
                             else: st.error(f"Falha ao aprovar {row['email']}.")
-                    if col_reject.button("Rejeitar", key=f"reject_{index}", use_container_width=True):
+                    if col_reject.button("Rejeitar", key=f"reject_{index}", width='stretch'):
                         with st.spinner(f"Rejeitando {row['email']}..."):
                             if matrix_manager.reject_access_request(row['email']):
                                 st.warning(f"Solicitação de {row['email']} rejeitada."); st.rerun()
