@@ -145,7 +145,7 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
             display_url = convert_drive_url_to_displayable(foto_url)
             if display_url: 
-                st.image(display_url, use_column_width=True)
+                st.image(display_url, use_container_width=True)
             else: 
                 st.caption("Imagem não disponível ou URL inválida")
         else:

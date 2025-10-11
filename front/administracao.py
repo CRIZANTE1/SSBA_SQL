@@ -99,7 +99,7 @@ def display_incident_registration_tab():
             col1, col2 = st.columns([1, 2])
             with col1:
                 # Mostra a foto em memória
-                st.image(data['photo_file_bytes'], caption="Foto do Incidente", use_column_width=True)
+                st.image(data['photo_file_bytes'], caption="Foto do Incidente", use_container_width=True)
             
             with col2:
                 edited_evento_resumo = st.text_input("Resumo do Evento", value=data.get('evento_resumo', ''))
