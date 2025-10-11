@@ -367,6 +367,35 @@ service_role_key = "sua_service_role_key_aqui"
                     except Exception as e:
                         st.error(f"❌ Upload falhou:\n\n{e}")
         
+        if st.button("🖼️ Testar Upload de Imagem Real", use_container_width=True):
+            with st.spinner("Testando upload de imagem..."):
+                try:
+                    client = create_client(supabase_url, service_key)
+                    
+                    # Cria uma imagem PNG válida de 1x1 pixel
+                    import struct
+                    png_data = (
+                        b'\x89PNG\r\n\x1a\n'  # PNG signature
+                        b'\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+                        b'\x08\x02\x00\x00\x00\x90wS\xde'
+                        b'\x00\x00\x00\x0cIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4'
+                        b'\x00\x00\x00\x00IEND\xaeB`\x82'
+                    )
+                    
+                    result = client.storage.from_("public-images").upload(
+                        path="test_image.png",
+                        file=png_data,
+                        file_options={"content-type": "image/png", "upsert": "true"}
+                    )
+                    
+                    st.success("✅ Upload de imagem funcionou!")
+                    file_url = client.storage.from_("public-images").get_public_url("test_image.png")
+                    st.markdown(f"**URL:** {file_url}")
+                    st.image(file_url, width=100)
+                    
+                except Exception as e:
+                    st.error(f"❌ Upload falhou:\n\n{e}")
+        
         st.divider()
         st.subheader("Teste do SupabaseStorage (classe do app)")
         
