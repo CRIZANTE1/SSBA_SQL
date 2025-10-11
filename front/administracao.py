@@ -13,9 +13,8 @@ from database.supabase_storage import SupabaseStorage
 
 def analyze_incident_document(attachment_file, photo_file, alert_number):
     """
-    Orquestra a análise com IA e faz o upload dos arquivos para as pastas corretas:
-    - Foto vai para a pasta de imagens públicas.
-    - Anexo vai para a pasta de documentos restritos.
+    Orquestra a análise com IA e faz o upload dos arquivos.
+    Os nomes serão gerados automaticamente usando hash.
     """
     st.session_state.processing = True
     st.session_state.error = None
@@ -42,19 +41,14 @@ def analyze_incident_document(attachment_file, photo_file, alert_number):
             if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
                 raise ValueError("A análise da IA falhou ou não retornou o formato JSON esperado com recomendações.")
 
-            # 2. Upload para o Supabase Storage
+            # 2. Upload para o Supabase Storage (nomes gerados automaticamente com hash)
             storage = SupabaseStorage()
 
-            safe_alert_number = "".join(c for c in alert_number if c.isalnum() or c in ('-','_')).rstrip()
-
-            # Upload da foto para o bucket público
-            photo_filename = f"foto_{safe_alert_number}.jpg"
-            photo_url = storage.upload_public_image(photo_file, photo_filename)
+            # Upload da foto (nome gerado automaticamente)
+            photo_url = storage.upload_public_image(photo_file)
             
-            # Upload do anexo para o bucket restrito
-            anexo_extension = attachment_file.name.split('.')[-1]
-            anexo_filename = f"anexo_{safe_alert_number}.{anexo_extension}"
-            anexos_url = storage.upload_restricted_attachment(attachment_file, anexo_filename)
+            # Upload do anexo (nome gerado automaticamente)
+            anexos_url = storage.upload_restricted_attachment(attachment_file)
 
             if not photo_url or not anexos_url:
                 raise ConnectionError("Falha no upload de um ou mais arquivos para o Supabase Storage.")

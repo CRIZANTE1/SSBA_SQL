@@ -127,11 +127,8 @@ def edit_action_dialog(item_data):
                     from database.supabase_storage import SupabaseStorage
                     storage = SupabaseStorage()
                     
-                    safe_action_id = "".join(c for c in str(item_data['id']) if c.isalnum())
-                    file_extension = uploaded_evidence.name.split('.')[-1]
-                    file_name = f"evidencia_acao_{safe_action_id}.{file_extension}"
-                    
-                    evidence_url = storage.upload_action_evidence(uploaded_evidence, file_name)
+                    # Nome será gerado automaticamente usando hash
+                    evidence_url = storage.upload_action_evidence(uploaded_evidence)
                     
                     if evidence_url:
                         updates["url_evidencia"] = evidence_url
