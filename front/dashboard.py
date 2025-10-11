@@ -179,6 +179,10 @@ def display_incident_list(incident_manager: IncidentManager):
         ttl_seconds=300  # 5 minutos
     )
     
+    if all_incidents_df.empty:
+        st.info("Nenhum incidente cadastrado no sistema ainda.")
+        return
+    
     user_unit = st.session_state.get('unit_name', 'Global')
     
     if user_unit != 'Global':
@@ -189,6 +193,50 @@ def display_incident_list(incident_manager: IncidentManager):
             ttl_seconds=300,
             unit_name=user_unit
         )
+        
+        # Separa incidentes pendentes e analisados
+        all_incidents_df['id_str'] = all_incidents_df['id'].astype(str)
+        pending_df = all_incidents_df[~all_incidents_df['id_str'].isin(covered_ids)]
+        analyzed_df = all_incidents_df[all_incidents_df['id_str'].isin(covered_ids)]
+    else:
+        # Admin vê todos como pendentes para análise global
+        pending_df = all_incidents_df
+        analyzed_df = pd.DataFrame()
+    
+    # Ordena por data (mais recente primeiro)
+    if 'data_evento' in pending_df.columns:
+        pending_df['data_dt'] = pd.to_datetime(pending_df['data_evento'], format='%d/%m/%Y', errors='coerce')
+        pending_df = pending_df.sort_values('data_dt', ascending=False)
+    
+    if not analyzed_df.empty and 'data_evento' in analyzed_df.columns:
+        analyzed_df['data_dt'] = pd.to_datetime(analyzed_df['data_evento'], format='%d/%m/%Y', errors='coerce')
+        analyzed_df = analyzed_df.sort_values('data_dt', ascending=False)
+    
+    # Exibe métricas
+    col1, col2 = st.columns(2)
+    col1.metric("📋 Incidentes Pendentes de Análise", len(pending_df))
+    col2.metric("✅ Incidentes Já Analisados", len(analyzed_df))
+    
+    st.divider()
+    
+    # Renderiza incidentes pendentes
+    if not pending_df.empty:
+        st.subheader("🔴 Pendentes de Análise de Abrangência")
+        cols = st.columns(3)
+        for idx, (_, incident) in enumerate(pending_df.iterrows()):
+            col = cols[idx % 3]
+            render_incident_card(incident, col, incident_manager, is_pending=True)
+    else:
+        st.success("🎉 Parabéns! Todos os incidentes já foram analisados pela sua unidade.")
+    
+    # Renderiza incidentes já analisados
+    if not analyzed_df.empty:
+        st.divider()
+        with st.expander(f"✅ Ver {len(analyzed_df)} Incidentes Já Analisados", expanded=False):
+            cols = st.columns(3)
+            for idx, (_, incident) in enumerate(analyzed_df.iterrows()):
+                col = cols[idx % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=False)
 
 def show_dashboard_page():
     check_permission(level='viewer')
