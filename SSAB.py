@@ -49,8 +49,47 @@ def show_request_access_form():
                 else:
                     st.error("Ocorreu um erro ao enviar sua solicitação.")
 
+def initialize_app():
+    """Inicialização otimizada do app"""
+    
+    # Desabilita logs verbosos em produção
+    if not st.secrets.get("general", {}).get("DEBUG_MODE", False):
+        import logging
+        logging.getLogger('abrangencia_app').setLevel(logging.WARNING)
+    
+    # Pre-carrega dados críticos apenas uma vez
+    if 'app_initialized' not in st.session_state:
+        with st.spinner("Inicializando aplicação..."):
+            # Pre-cache de dados estáticos
+            from operations.data_loader import DataCache
+            from operations.incident_manager import get_incident_manager
+            
+            user_email = st.session_state.get('user_info', {}).get('email')
+            
+            if user_email:
+                incident_manager = get_incident_manager()
+                
+                # Carrega dados em paralelo (se possível)
+                DataCache.get_or_load(
+                    key="blocking_actions",
+                    loader_func=incident_manager.get_all_blocking_actions,
+                    ttl_seconds=3600
+                )
+        
+        st.session_state.app_initialized = True
+
 def main():
     configurar_pagina()
+    
+    # ... código de autenticação ...
+    
+    if not is_authorized:
+        return
+    
+    # <<< ADICIONAR AQUI >>>
+    initialize_app()
+    
+    # ... resto do código ...
 
 
     if "code" in st.query_params and not is_user_logged_in():

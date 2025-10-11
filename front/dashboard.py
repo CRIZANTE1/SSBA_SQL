@@ -5,6 +5,7 @@ from auth.auth_utils import check_permission
 from operations.incident_manager import get_incident_manager, IncidentManager
 from operations.audit_logger import log_action
 from database.matrix_manager import get_matrix_manager
+from operations.data_loader import DataCache
 
 def convert_drive_url_to_displayable(url: str) -> str | None:
     # Generalized for Supabase or any http(S) public URL.
@@ -170,77 +171,24 @@ def render_incident_card(incident, col, incident_manager, is_pending):
 
 def display_incident_list(incident_manager: IncidentManager):
     st.title("Dashboard de Incidentes")
-    search_query = st.text_input("🔍 Pesquisar por título ou número do alerta", placeholder="Digite para filtrar...")
     
-    # <<< ADICIONE PAGINAÇÃO AQUI >>>
-    items_per_page = st.selectbox("Itens por página", [10, 20, 50], index=1, key="incidents_per_page")
+    # <<< USA CACHE PERSISTENTE >>>
+    all_incidents_df = DataCache.get_or_load(
+        key="all_incidents",
+        loader_func=incident_manager.get_all_incidents,
+        ttl_seconds=300  # 5 minutos
+    )
     
-    all_incidents_df = incident_manager.get_all_incidents()
-    
-    if search_query:
-        all_incidents_df = all_incidents_df[
-            all_incidents_df['evento_resumo'].str.contains(search_query, case=False) |
-            all_incidents_df['numero_alerta'].str.contains(search_query, case=False)
-        ]
-
     user_unit = st.session_state.get('unit_name', 'Global')
-    matrix_manager = get_matrix_manager()
     
-    if user_unit == 'Global':
-        st.subheader("📋 Todos os Alertas Cadastrados no Sistema")
-        st.info("Como administrador global, você visualiza todos os incidentes cadastrados.")
-        
-        # <<< MUDANÇA AQUI: Admin vê TODOS os incidentes >>>
-        if all_incidents_df.empty:
-            st.warning("Nenhum alerta cadastrado ainda.")
-        else:
-            # Ordena por data mais recente
-            try:
-                all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
-                sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
-            except Exception:
-                sorted_incidents = all_incidents_df
-            
-            # Paginação
-            total_items = len(sorted_incidents)
-            total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
-            
-            page = st.number_input("Página", min_value=1, max_value=total_pages, value=1, key="current_page")
-            
-            start_idx = (page - 1) * items_per_page
-            end_idx = start_idx + items_per_page
-            
-            paginated_incidents = sorted_incidents.iloc[start_idx:end_idx]
-            
-            st.caption(f"Mostrando {start_idx + 1}-{min(end_idx, total_items)} de {total_items} incidentes")
-            
-            st.write(f"Exibindo **{len(sorted_incidents)}** alerta(s) no total.")
-            
-            # Mostra todos os incidentes para o admin
-            cols = st.columns(3)
-            for i, (_, incident) in enumerate(paginated_incidents.iterrows()):
-                col = cols[i % 3]
-                # Admin pode analisar qualquer incidente
-                render_incident_card(incident, col, incident_manager, is_pending=True)
-    else:
-        try:
-            all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
-            sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
-        except Exception:
-            sorted_incidents = all_incidents_df
-        
-        covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
-        pending_incidents_df = sorted_incidents[~sorted_incidents['id'].isin(covered_incident_ids)]
-        
-        st.subheader("🚨 Alertas Pendentes de Análise")
-        if pending_incidents_df.empty:
-            st.success(f"🎉 Ótimo trabalho! Não há alertas pendentes para a unidade **{user_unit}**.")
-        else:
-            st.write(f"Você tem **{len(pending_incidents_df)}** alerta(s) para analisar.")
-            cols_pending = st.columns(3)
-            for i, (_, incident) in enumerate(pending_incidents_df.iterrows()):
-                col = cols_pending[i % 3]
-                render_incident_card(incident, col, incident_manager, is_pending=True)
+    if user_unit != 'Global':
+        # Cache específico por unidade
+        covered_ids = DataCache.get_or_load(
+            key=f"covered_incidents_{user_unit}",
+            loader_func=incident_manager.get_covered_incident_ids_for_unit,
+            ttl_seconds=300,
+            unit_name=user_unit
+        )
 
 def show_dashboard_page():
     check_permission(level='viewer')

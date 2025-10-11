@@ -114,7 +114,7 @@ def display_incident_registration_tab():
             
             st.markdown("##### Recomendações / Ações de Bloqueio Sugeridas")
             recomendacoes_df = pd.DataFrame(data.get('recomendacoes', []), columns=["Descrição da Ação"])
-            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", use_container_width=True)
+            edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", width='stretch')
 
             confirm_button = st.form_submit_button("Confirmar e Salvar Alerta Completo")
 
@@ -466,7 +466,7 @@ def show_admin_page():
         all_users_df = matrix_manager.get_all_users_df()
         if not all_users_df.empty:
             st.write("Clique em uma linha para editar ou remover um usuário.")
-            selected_user = st.dataframe(all_users_df, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+            selected_user = st.dataframe(all_users_df, width='stretch', hide_index=True, on_select="rerun", selection_mode="single-row")
             if selected_user.selection.rows:
                 user_to_manage = all_users_df.iloc[selected_user.selection.rows[0]].to_dict()
                 st.subheader(f"Ações para: {user_to_manage['nome']}")
@@ -483,7 +483,7 @@ def show_admin_page():
         matrix_manager = get_matrix_manager()
         logs_df = matrix_manager.get_audit_logs()
         if not logs_df.empty:
-            st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(logs_df.sort_values(by='timestamp', ascending=False), width='stretch', hide_index=True)
         else: st.info("Nenhum registro de log encontrado.")
 
     with tab_requests:
