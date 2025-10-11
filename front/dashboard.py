@@ -169,25 +169,34 @@ def display_incident_list(incident_manager: IncidentManager):
     matrix_manager = get_matrix_manager()
     
     if user_unit == 'Global':
-        st.subheader("Alertas com Abrangência Pendente no Sistema")
-        all_active_units = matrix_manager.get_all_units()
-        if not all_active_units:
-            st.warning("Não há unidades operacionais cadastradas no sistema."); st.info("Cadastre usuários e associe-os a unidades."); return
+        st.subheader("📋 Todos os Alertas Cadastrados no Sistema")
+        st.info("Como administrador global, você visualiza todos os incidentes cadastrados.")
         
-        incidents_to_show_df = incident_manager.get_globally_pending_incidents(all_active_units, all_incidents_df)
-
-        if incidents_to_show_df.empty:
-            st.success("🎉 Todos os alertas foram analisados por todas as unidades operacionais ativas!")
+        # <<< MUDANÇA AQUI: Admin vê TODOS os incidentes >>>
+        if all_incidents_df.empty:
+            st.warning("Nenhum alerta cadastrado ainda.")
         else:
-            st.info(f"Exibindo **{len(incidents_to_show_df)}** alerta(s) com pendências.")
+            # Ordena por data mais recente
+            try:
+                all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
+                sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
+            except Exception:
+                sorted_incidents = all_incidents_df
+            
+            st.write(f"Exibindo **{len(sorted_incidents)}** alerta(s) no total.")
+            
+            # Mostra todos os incidentes para o admin
             cols = st.columns(3)
-            for i, (_, incident) in enumerate(incidents_to_show_df.iterrows()):
-                col = cols[i % 3]; render_incident_card(incident, col, incident_manager, is_pending=True)
+            for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
+                col = cols[i % 3]
+                # Admin pode analisar qualquer incidente
+                render_incident_card(incident, col, incident_manager, is_pending=True)
     else:
         try:
             all_incidents_df['data_evento_dt'] = pd.to_datetime(all_incidents_df['data_evento'], dayfirst=True)
             sorted_incidents = all_incidents_df.sort_values(by="data_evento_dt", ascending=False)
-        except Exception: sorted_incidents = all_incidents_df
+        except Exception:
+            sorted_incidents = all_incidents_df
         
         covered_incident_ids = incident_manager.get_covered_incident_ids_for_unit(user_unit)
         pending_incidents_df = sorted_incidents[~sorted_incidents['id'].isin(covered_incident_ids)]
@@ -199,7 +208,8 @@ def display_incident_list(incident_manager: IncidentManager):
             st.write(f"Você tem **{len(pending_incidents_df)}** alerta(s) para analisar.")
             cols_pending = st.columns(3)
             for i, (_, incident) in enumerate(pending_incidents_df.iterrows()):
-                col = cols_pending[i % 3]; render_incident_card(incident, col, incident_manager, is_pending=True)
+                col = cols_pending[i % 3]
+                render_incident_card(incident, col, incident_manager, is_pending=True)
 
 def show_dashboard_page():
     check_permission(level='viewer')
