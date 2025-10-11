@@ -14,7 +14,7 @@ def get_incident_manager():
 class IncidentManager:
     def __init__(self):
         self.db = SupabaseOperations()
-        if not self.db.client:
+        if not self.db.engine:  
             raise ConnectionError("Falha na conexão com o Supabase.")
 
     def get_all_incidents(self) -> pd.DataFrame:
