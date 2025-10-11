@@ -46,10 +46,16 @@ def show_login_page():
             st.subheader("Por favor, faça login para continuar")
             st.write("")
 
-            if st.button("Entrar com Google", use_container_width=True, type="primary"):
-                st.session_state.google_login_triggered = True
-
-            st.markdown("<p style='text-align: center; margin: 10px 0;'>ou</p>", unsafe_allow_html=True)
+            # Verifica se o Google OAuth está configurado em [auth]
+            google_configured = bool(st.secrets.get("auth", {}).get("client_id"))
+            
+            if google_configured:
+                if st.button("Entrar com Google", use_container_width=True, type="primary"):
+                    st.session_state.google_login_triggered = True
+                
+                st.markdown("<p style='text-align: center; margin: 10px 0;'>ou</p>", unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Login com Google não está disponível. Use o login com Microsoft Azure abaixo.")
             
             get_login_button()
         
