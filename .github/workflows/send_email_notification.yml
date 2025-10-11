@@ -47,4 +47,10 @@ jobs:
           # Passa o ID da planilha como variável de ambiente
           MATRIX_SPREADSHEET_ID: ${{ secrets.MATRIX_SPREADSHEET_ID }}
           
+          # Credenciais do Supabase
+          DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          
         run: python .github/scripts/email_notifier.py

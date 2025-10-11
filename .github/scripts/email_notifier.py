@@ -13,14 +13,12 @@ from dotenv import load_dotenv
 try:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.abspath(os.path.join(script_dir, '..', '..'))
-    sys.path.append(root_dir)  # Adiciona raiz ao path para imports
-
-from email_templates import TEMPLATES  # Corrigido de EMPLATES
+    
     if root_dir not in sys.path:
         sys.path.append(root_dir)
     
     from database.supabase_operations import SupabaseOperations
-    from email_templates import EMPLATES
+    from email_templates import TEMPLATES
 except ImportError as e:
     print(f"Erro de importação: {e}")
     sys.exit(1)
@@ -107,7 +105,7 @@ def format_admin_summary_table(overdue_df: pd.DataFrame) -> str:
 def send_user_notifications(grouped_by_responsible, config: dict):
     """Envia e-mails individuais para cada responsável com suas pendências."""
     print("\n--- Iniciando envio de notificações para usuários ---")
-    email_tpl = EMPLATES['overdue_actions']
+    email_tpl = TEMPLATES['overdue_actions']
     
     for (resp_email, co_resp_email), group_df in grouped_by_responsible:
         recipients = [resp_email]
@@ -136,7 +134,7 @@ def send_admin_summary(overdue_df: pd.DataFrame, config: dict):
         print("AVISO: Nenhum e-mail de administrador configurado. Pulando envio do relatório gerencial.")
         return
     
-    email_tpl = EMPLATES['admin_summary_report']
+    email_tpl = TEMPLATES['admin_summary_report']
 
     summary_table_html = format_admin_summary_table(overdue_df)
     context = {
