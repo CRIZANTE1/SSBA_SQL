@@ -83,13 +83,7 @@ def main():
     
     # ... código de autenticação ...
     
-    if not is_authorized:
-        return
-    
-    # <<< ADICIONAR AQUI >>>
-    initialize_app()
-    
-    # ... resto do código ...
+
 
 
     if "code" in st.query_params and not is_user_logged_in():
@@ -119,6 +113,7 @@ def main():
         return
 
     # Etapa 5: Renderiza o aplicativo principal para usuários autorizados
+    initialize_app()
     user_role = get_user_role()
     with st.sidebar:
         show_user_header()
