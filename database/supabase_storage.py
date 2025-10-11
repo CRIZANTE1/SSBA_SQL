@@ -4,6 +4,8 @@ import os
 import hashlib
 from io import BytesIO
 from datetime import datetime
+from PIL import Image
+import io
 from .supabase_config import get_supabase_client, PUBLIC_IMAGES_BUCKET, RESTRICTED_ATTACHMENTS_BUCKET, ACTION_EVIDENCE_BUCKET
 
 logger = logging.getLogger('abrangencia_app.supabase_storage')
@@ -41,6 +43,54 @@ class SupabaseStorage:
                 self.client = None
         
         self._initialized = True
+
+    def _compress_image(self, file_bytes: bytes, max_size_kb: int = 500) -> bytes:
+        """
+        Comprime imagens para reduzir uso de storage e egress.
+        
+        Args:
+            file_bytes: Bytes da imagem original
+            max_size_kb: Tamanho máximo em KB (padrão: 500KB)
+        
+        Returns:
+            Bytes da imagem comprimida
+        """
+        try:
+            # Abre a imagem
+            img = Image.open(io.BytesIO(file_bytes))
+            
+            # Converte RGBA para RGB se necessário
+            if img.mode == 'RGBA':
+                img = img.convert('RGB')
+            
+            # Redimensiona se for muito grande
+            max_dimension = 1920
+            if max(img.size) > max_dimension:
+                ratio = max_dimension / max(img.size)
+                new_size = tuple([int(dim * ratio) for dim in img.size])
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+            
+            # Comprime iterativamente até atingir o tamanho desejado
+            quality = 85
+            output = io.BytesIO()
+            
+            while quality > 20:
+                output.seek(0)
+                output.truncate()
+                img.save(output, format='JPEG', quality=quality, optimize=True)
+                size_kb = output.tell() / 1024
+                
+                if size_kb <= max_size_kb or quality <= 20:
+                    break
+                
+                quality -= 5
+            
+            logger.info(f"Imagem comprimida: {len(file_bytes)/1024:.1f}KB -> {output.tell()/1024:.1f}KB")
+            return output.getvalue()
+            
+        except Exception as e:
+            logger.warning(f"Falha ao comprimir imagem: {e}. Usando original.")
+            return file_bytes
 
     def _calculate_file_hash(self, file_bytes: bytes) -> str:
         """
@@ -133,6 +183,11 @@ class SupabaseStorage:
             else:
                 logger.error("Objeto de arquivo inválido")
                 return None
+
+            # <<< ADICIONE AQUI >>>
+            # Comprime imagens automaticamente
+            if content_type and content_type.startswith('image/') and bucket_name == PUBLIC_IMAGES_BUCKET:
+                file_bytes = self._compress_image(file_bytes, max_size_kb=300)
 
             # Calcula o hash do arquivo
             file_hash = self._calculate_file_hash(file_bytes)

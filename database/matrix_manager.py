@@ -20,7 +20,7 @@ class MatrixManager:
         if not self.db.engine:
             raise ConnectionError("Falha na conexão com o Supabase.")
 
-    @st.cache_data(ttl=300)
+    @st.cache_data(ttl=1800)  # 30 minutos - dados de usuários mudam pouco
     def get_utilities_users(_self) -> tuple[dict, list]:
         """Carrega usuários da tabela utilities (permite sem unidade)"""
         utilities_df = _self.db.get_table_data("utilities")

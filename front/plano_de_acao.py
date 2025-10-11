@@ -6,7 +6,7 @@ from operations.incident_manager import get_incident_manager
 from operations.audit_logger import log_action
 from front.dashboard import convert_drive_url_to_displayable
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=900)  # 15 minutos - planos de ação não mudam constantemente
 def load_action_plan_data():
     """Carrega e processa dados do plano de ação"""
     incident_manager = get_incident_manager()
@@ -99,14 +99,16 @@ def edit_action_dialog(item_data):
         uploaded_evidence = st.file_uploader("Anexar Evidência (Foto ou PDF)", type=['jpg', 'png', 'jpeg', 'pdf'])
         current_evidence_url = item_data.get('url_evidencia', '')
         if current_evidence_url:
-            st.write("Evidência atual:")
-            is_pdf = '.pdf' in current_evidence_url.lower()
-            if is_pdf:
-                st.markdown(f"📄 **[Ver PDF Anexado]({current_evidence_url})**")
-            else:
-                thumb_url = convert_drive_url_to_displayable(current_evidence_url)
-                if thumb_url: st.image(thumb_url, width=200)
-                st.markdown(f"[Ver imagem completa]({current_evidence_url})")
+            with st.expander("📎 Ver Evidência Anexada", expanded=False):
+                is_pdf = '.pdf' in current_evidence_url.lower()
+                if is_pdf:
+                    st.markdown(f"📄 **[Abrir PDF]({current_evidence_url})**")
+                else:
+                    # Só carrega a imagem quando expandido
+                    thumb_url = convert_drive_url_to_displayable(current_evidence_url)
+                    if thumb_url: 
+                        st.image(thumb_url, width=200, caption="Clique para ampliar")
+                    st.markdown(f"[Ver imagem em tamanho real]({current_evidence_url})")
 
         submitted = st.form_submit_button("Salvar Alterações")
 

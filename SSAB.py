@@ -18,6 +18,11 @@ from front.administracao import show_admin_page
 from front.plano_de_acao import show_plano_acao_page
 from database.matrix_manager import get_matrix_manager
 from operations.audit_logger import log_action
+
+# Monitoramento de uso (apenas para debug)
+if st.secrets.get("general", {}).get("DEBUG_MODE", False):
+    st.sidebar.metric("Cache Info", f"{len(st.session_state)} items")
+
 # <<< NOVA IMPORTAÇÃO >>>
 from auth.azure_auth import handle_redirect
 

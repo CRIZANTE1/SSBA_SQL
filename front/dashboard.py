@@ -16,6 +16,11 @@ def convert_drive_url_to_displayable(url: str) -> str | None:
         return url
     return None
 
+@st.cache_data(ttl=3600)  # Cache de 1 hora para URLs de imagens
+def get_cached_image_url(url: str) -> str:
+    """Cache de URLs de imagens para reduzir requisições"""
+    return url
+
 @st.dialog("Análise de Abrangência do Incidente", width="large")
 def abrangencia_dialog(incident, incident_manager: IncidentManager):
     st.subheader(incident.get('evento_resumo'))
@@ -145,7 +150,8 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         if pd.notna(foto_url) and isinstance(foto_url, str) and foto_url.strip():
             display_url = convert_drive_url_to_displayable(foto_url)
             if display_url: 
-                st.image(display_url, use_container_width=True)
+                cached_url = get_cached_image_url(display_url)
+                st.image(cached_url, use_container_width=True)
             else: 
                 st.caption("Imagem não disponível ou URL inválida")
         else:
@@ -165,6 +171,9 @@ def render_incident_card(incident, col, incident_manager, is_pending):
 def display_incident_list(incident_manager: IncidentManager):
     st.title("Dashboard de Incidentes")
     search_query = st.text_input("🔍 Pesquisar por título ou número do alerta", placeholder="Digite para filtrar...")
+    
+    # <<< ADICIONE PAGINAÇÃO AQUI >>>
+    items_per_page = st.selectbox("Itens por página", [10, 20, 50], index=1, key="incidents_per_page")
     
     all_incidents_df = incident_manager.get_all_incidents()
     
@@ -192,11 +201,24 @@ def display_incident_list(incident_manager: IncidentManager):
             except Exception:
                 sorted_incidents = all_incidents_df
             
+            # Paginação
+            total_items = len(sorted_incidents)
+            total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+            
+            page = st.number_input("Página", min_value=1, max_value=total_pages, value=1, key="current_page")
+            
+            start_idx = (page - 1) * items_per_page
+            end_idx = start_idx + items_per_page
+            
+            paginated_incidents = sorted_incidents.iloc[start_idx:end_idx]
+            
+            st.caption(f"Mostrando {start_idx + 1}-{min(end_idx, total_items)} de {total_items} incidentes")
+            
             st.write(f"Exibindo **{len(sorted_incidents)}** alerta(s) no total.")
             
             # Mostra todos os incidentes para o admin
             cols = st.columns(3)
-            for i, (_, incident) in enumerate(sorted_incidents.iterrows()):
+            for i, (_, incident) in enumerate(paginated_incidents.iterrows()):
                 col = cols[i % 3]
                 # Admin pode analisar qualquer incidente
                 render_incident_card(incident, col, incident_manager, is_pending=True)

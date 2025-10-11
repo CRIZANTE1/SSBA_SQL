@@ -53,7 +53,7 @@ class SupabaseOperations:
             logger.warning("Nenhum usuário logado, usando engine sem RLS")
             return self.engine
 
-    @st.cache_data(ttl=60)
+    @st.cache_data(ttl=600)  # 10 minutos ao invés de 1
     def get_table_data(_self, table_name: str) -> pd.DataFrame:
         """Carrega todos os dados de uma tabela (com RLS aplicado)"""
         if not _self.engine:
@@ -167,6 +167,19 @@ class SupabaseOperations:
         except Exception as e:
             logger.error(f"Erro ao deletar linha da tabela '{table_name}': {e}")
             return False
+
+    def get_by_field_cached(self, table_name: str, field: str, value, ttl: int = 600) -> pd.DataFrame:
+        """
+        Versão cacheada de get_by_field para reduzir queries repetidas.
+    
+        Args:
+            ttl: Tempo de cache em segundos (padrão: 10 minutos)
+        """
+        @st.cache_data(ttl=ttl)
+        def _cached_query(_self, _table, _field, _value):
+            return _self.get_by_field(_table, _field, _value)
+        
+        return _cached_query(self, table_name, field, value)
 
     def get_by_field(self, table_name: str, field: str, value) -> pd.DataFrame:
         """Busca registros por um campo específico (com RLS aplicado)"""
