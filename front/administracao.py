@@ -186,7 +186,7 @@ def user_dialog(user_data=None):
     st.subheader(title)
 
     matrix_manager = get_matrix_manager()
-    unit_names = ["*"] + matrix_manager.get_all_units()
+    existing_units = ["*"] + matrix_manager.get_all_units()
 
     with st.form("user_form"):
         email = st.text_input("E-mail", value=user_data['email'] if is_edit_mode else "", disabled=is_edit_mode)
@@ -196,16 +196,52 @@ def user_dialog(user_data=None):
         current_role_index = roles.index(user_data['role']) if is_edit_mode and user_data.get('role') in roles else 2
         role = st.selectbox("Papel (Role)", roles, index=current_role_index)
         
-        current_unit_index = unit_names.index(user_data['unidade_associada']) if is_edit_mode and user_data.get('unidade_associada') in unit_names else 0
-        unidade_associada = st.selectbox("Unidade Associada", unit_names, index=current_unit_index, help="Selecione '*' para acesso global (administradores).")
+        # <<< MUDANÇA: Adiciona opção para digitar nova unidade >>>
+        st.markdown("**Unidade Associada**")
+        unit_options = ["-- Digitar nova unidade --"] + existing_units
+        
+        # Define o índice padrão
+        if is_edit_mode and user_data.get('unidade_associada'):
+            current_unit = user_data['unidade_associada']
+            if current_unit in existing_units:
+                current_unit_index = unit_options.index(current_unit)
+            else:
+                current_unit_index = 0  # Digitar nova
+        else:
+            current_unit_index = 0
+        
+        unit_selection = st.selectbox(
+            "Selecione ou digite uma nova unidade",
+            unit_options,
+            index=current_unit_index,
+            help="Selecione '*' para acesso global (administradores) ou digite uma nova unidade.",
+            label_visibility="collapsed"
+        )
+        
+        # Campo de texto para nova unidade
+        unidade_associada = None
+        if unit_selection == "-- Digitar nova unidade --":
+            default_value = user_data.get('unidade_associada', '') if is_edit_mode and user_data.get('unidade_associada') not in existing_units else ''
+            unidade_associada = st.text_input(
+                "Digite o nome da nova unidade",
+                value=default_value,
+                placeholder="Ex: BAERI, São Paulo, etc."
+            )
+        else:
+            unidade_associada = unit_selection
 
         if st.form_submit_button("Salvar"):
+            # <<< VALIDAÇÃO >>>
             if not email or not nome:
                 st.error("E-mail e Nome são obrigatórios.")
                 return
+            
+            if not unidade_associada or not unidade_associada.strip():
+                st.error("Você deve selecionar ou digitar uma unidade operacional.")
+                return
 
             if is_edit_mode:
-                updates = {"nome": nome, "role": role, "unidade_associada": unidade_associada}
+                updates = {"nome": nome, "role": role, "unidade_associada": unidade_associada.strip()}
                 if matrix_manager.update_user(user_data['email'], updates):
                     st.success("Usuário atualizado com sucesso!")
                     st.rerun()
@@ -215,7 +251,7 @@ def user_dialog(user_data=None):
                 if matrix_manager.get_user_info(email):
                     st.error(f"O e-mail '{email}' já está cadastrado.")
                 else:
-                    new_user_data = [email, nome, role, unidade_associada]
+                    new_user_data = [email, nome, role, unidade_associada.strip()]
                     if matrix_manager.add_user(new_user_data):
                         st.success(f"Usuário '{nome}' adicionado com sucesso!")
                         st.rerun()
