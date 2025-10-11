@@ -22,15 +22,18 @@ class MatrixManager:
 
     @st.cache_data(ttl=300)
     def get_utilities_users(_self) -> tuple[dict, list]:
-        """Carrega usuários da tabela utilities"""
+        """Carrega usuários da tabela utilities (permite sem unidade)"""
         utilities_df = _self.db.get_table_data("utilities")
         
         if utilities_df.empty or 'nome' not in utilities_df.columns:
             return {}, []
         
+        # Remove apenas linhas completamente vazias
         utilities_df = utilities_df.dropna(subset=['nome', 'email'])
         utilities_df = utilities_df[utilities_df['nome'].str.strip() != '']
+        utilities_df = utilities_df[utilities_df['email'].str.strip() != '']
         
+        # <<< MUDANÇA: Não filtra por unidade, aceita null/vazio >>>
         user_map = pd.Series(utilities_df.email.values, index=utilities_df.nome).to_dict()
         user_names = sorted(utilities_df['nome'].tolist())
         

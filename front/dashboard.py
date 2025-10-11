@@ -39,17 +39,23 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
     matrix_manager = get_matrix_manager()
     user_map, user_names = matrix_manager.get_utilities_users()
     
+    # <<< MUDANÇA AQUI: Permite que utilities tenha pessoas sem unidade >>>
     if not user_names:
         st.warning("A lista de responsáveis (aba 'utilities') não pôde ser carregada ou está vazia.")
-        user_names = ["(Lista de usuários vazia)"]; user_map = {}
+        user_names = ["(Lista de usuários vazia)"]
+        user_map = {}
 
     is_admin = st.session_state.get('unit_name') == 'Global'
     if is_admin:
         all_units = matrix_manager.get_all_units()
-        options = ["-- Digitar nome da UO --"] + all_units
+        # Adiciona opção para "sem unidade" ou digitação manual
+        options = ["-- Digitar nome da UO --", "-- Pessoa sem UO (utilities) --"] + all_units
         chosen_option = st.selectbox("Selecione a Unidade Operacional (UO) de destino", options=options, key="admin_uo_selector")
+        
         if chosen_option == "-- Digitar nome da UO --":
             st.text_input("Digite o nome da UO", key="admin_uo_text_input")
+        elif chosen_option == "-- Pessoa sem UO (utilities) --":
+            st.info("💡 O responsável selecionado não está associado a uma unidade específica. A ação será registrada como 'Utilities' ou 'Geral'.")
     
     st.markdown("---")
     for _, action in blocking_actions.iterrows():
@@ -82,8 +88,11 @@ def abrangencia_dialog(incident, incident_manager: IncidentManager):
         if is_admin:
             if st.session_state.admin_uo_selector == "-- Digitar nome da UO --":
                 unit_to_save = st.session_state.admin_uo_text_input
+            elif st.session_state.admin_uo_selector == "-- Pessoa sem UO (utilities) --":
+                unit_to_save = "Utilities"  # <<< Nome padrão para pessoas sem UO
             else:
                 unit_to_save = st.session_state.admin_uo_selector
+            
             if not unit_to_save or not unit_to_save.strip():
                 st.error("Administrador: Por favor, selecione ou digite o nome da Unidade Operacional."); return
         else:
