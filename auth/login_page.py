@@ -51,7 +51,7 @@ def show_login_page():
             
             if google_configured:
                 if st.button("Entrar com Google", width='stretch', type="primary"):
-                
+                    st.session_state.google_login_triggered = True
                 st.markdown("<p style='text-align: center; margin: 10px 0;'>ou</p>", unsafe_allow_html=True)
             else:
                 st.warning("⚠️ Login com Google não está disponível. Use o login com Microsoft Azure abaixo.")
