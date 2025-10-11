@@ -109,11 +109,20 @@ class MatrixManager:
         """Retorna lista de unidades operacionais"""
         users_df = self.get_all_users_df()
         
-        if users_df.empty or 'unidade_associada' not in users_df.columns:
-            return []
+        units = set()
         
-        units = users_df['unidade_associada'].dropna().unique()
-        return sorted([str(u) for u in units if u and str(u).strip() and str(u) != '*'])
+        # Coleta unidades da tabela de usuários
+        if not users_df.empty and 'unidade_associada' in users_df.columns:
+            user_units = users_df['unidade_associada'].dropna().unique()
+            units.update([str(u) for u in user_units if u and str(u).strip() and str(u) != '*'])
+        
+        # <<< ADICIONA: Coleta unidades da tabela utilities >>>
+        utilities_df = self.db.get_table_data("utilities")
+        if not utilities_df.empty and 'unidade' in utilities_df.columns:
+            utility_units = utilities_df['unidade'].dropna().unique()
+            units.update([str(u) for u in utility_units if u and str(u).strip() and str(u).lower() != 'n/a'])
+        
+        return sorted(list(units))
 
     def add_access_request(self, email: str, name: str, unit: str) -> bool:
         """Adiciona uma solicitação de acesso"""
