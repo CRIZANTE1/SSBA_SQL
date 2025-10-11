@@ -15,6 +15,34 @@ def format_bytes(bytes_value):
         bytes_value /= 1024.0
     return f"{bytes_value:.2f} PB"
 
+def get_storage_stats_from_db():
+    """Obtém estatísticas de storage direto do banco"""
+    try:
+        engine = get_database_engine()
+        with engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT 
+                    bucket_id,
+                    COUNT(*) as file_count,
+                    COALESCE(SUM((metadata->>'size')::bigint), 0) as total_size
+                FROM storage.objects
+                WHERE bucket_id IS NOT NULL
+                GROUP BY bucket_id
+                ORDER BY total_size DESC
+            """))
+            
+            stats = {}
+            for row in result:
+                stats[row.bucket_id] = {
+                    'count': row.file_count,
+                    'size': row.total_size
+                }
+            
+            return stats
+    except Exception as e:
+        st.warning(f"Não foi possível acessar estatísticas de storage: {e}")
+        return {}
+
 def get_database_size():
     """Calcula o tamanho total do banco de dados"""
     try:
@@ -57,39 +85,38 @@ def get_storage_usage():
         client = get_supabase_client()
         buckets = client.storage.list_buckets()
         
+        # <<< PEGA ESTATÍSTICAS DO BANCO >>>
+        storage_stats = get_storage_stats_from_db()
+        
         bucket_usage = []
         total_storage = 0
         
         for bucket in buckets:
             bucket_name = bucket['name']
             
-            try:
-                files = client.storage.from_(bucket_name).list()
-                
-                bucket_size = 0
-                file_count = 0
-                
-                for file_info in files:
-                    # Metadata retorna o tamanho em bytes
-                    if 'metadata' in file_info and 'size' in file_info['metadata']:
-                        bucket_size += file_info['metadata']['size']
-                    file_count += 1
-                
-                total_storage += bucket_size
-                
-                bucket_usage.append({
-                    'Bucket': bucket_name,
-                    'Arquivos': file_count,
-                    'Tamanho': format_bytes(bucket_size),
-                    'Público': '✅' if bucket.get('public', False) else '❌'
-                })
-            except Exception as e:
-                bucket_usage.append({
-                    'Bucket': bucket_name,
-                    'Arquivos': 'Erro',
-                    'Tamanho': 'N/A',
-                    'Público': '❌'
-                })
+            # Usa stats do banco se disponível
+            if bucket_name in storage_stats:
+                stats = storage_stats[bucket_name]
+                bucket_size = stats['size']
+                file_count = stats['count']
+            else:
+                # Fallback: tenta contar via API
+                try:
+                    files = client.storage.from_(bucket_name).list()
+                    file_count = len(files)
+                    bucket_size = 0  # API não retorna tamanho
+                except:
+                    file_count = 0
+                    bucket_size = 0
+            
+            total_storage += bucket_size
+            
+            bucket_usage.append({
+                'Bucket': bucket_name,
+                'Arquivos': file_count,
+                'Tamanho': format_bytes(bucket_size),
+                'Público': '✅' if bucket.get('public', False) else '❌'
+            })
         
         return total_storage, pd.DataFrame(bucket_usage)
     except Exception as e:
