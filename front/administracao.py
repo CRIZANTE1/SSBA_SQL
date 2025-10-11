@@ -228,12 +228,67 @@ def display_storage_test_tab():
     
     st.info("Use esta aba para diagnosticar problemas de autenticação com o Supabase Storage.")
     
-    # Mostra as configurações (sem expor a chave completa)
+    # <<< ADICIONE ESTA SEÇÃO DE DIAGNÓSTICO DETALHADO >>>
+    st.subheader("🔬 Diagnóstico Detalhado das Chaves")
+    
     try:
         supabase_url = st.secrets.supabase.get("url")
         anon_key = st.secrets.supabase.get("key")
         service_key = st.secrets.supabase.get("service_role_key")
         
+        # Decodifica os tokens JWT para verificar
+        import base64
+        import json
+        
+        def decode_jwt_payload(token):
+            """Decodifica a parte payload de um JWT sem verificar a assinatura"""
+            try:
+                # JWT format: header.payload.signature
+                parts = token.split('.')
+                if len(parts) != 3:
+                    return {"error": "Token inválido - não tem 3 partes"}
+                
+                # Decodifica o payload (segunda parte)
+                payload = parts[1]
+                # Adiciona padding se necessário
+                payload += '=' * (4 - len(payload) % 4)
+                decoded = base64.urlsafe_b64decode(payload)
+                return json.loads(decoded)
+            except Exception as e:
+                return {"error": str(e)}
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**🔑 Anon Key**")
+            if anon_key:
+                anon_payload = decode_jwt_payload(anon_key)
+                st.json(anon_payload)
+                expected_role = anon_payload.get("role")
+                if expected_role == "anon":
+                    st.success(f"✅ Role correta: {expected_role}")
+                else:
+                    st.error(f"❌ Role incorreta. Esperado: 'anon', Encontrado: '{expected_role}'")
+            else:
+                st.error("❌ Anon key não encontrada")
+        
+        with col2:
+            st.markdown("**🔐 Service Role Key**")
+            if service_key:
+                service_payload = decode_jwt_payload(service_key)
+                st.json(service_payload)
+                expected_role = service_payload.get("role")
+                if expected_role == "service_role":
+                    st.success(f"✅ Role correta: {expected_role}")
+                else:
+                    st.error(f"❌ Role incorreta. Esperado: 'service_role', Encontrado: '{expected_role}'")
+                    st.warning("⚠️ A chave configurada NÃO é uma service_role key! Você copiou a chave errada do Supabase.")
+            else:
+                st.error("❌ Service role key não encontrada")
+        
+        st.divider()
+        
+        # <<< RESTANTE DO CÓDIGO ORIGINAL >>>
         st.subheader("Configurações Encontradas")
         col1, col2 = st.columns(2)
         
@@ -248,6 +303,12 @@ def display_storage_test_tab():
         
         if not all([supabase_url, anon_key, service_key]):
             st.error("⚠️ Algumas configurações estão faltando! Verifique o arquivo `.streamlit/secrets.toml`")
+            st.code("""
+[supabase]
+url = "https://qhkfkffkaqihlhcfildx.supabase.co"
+key = "sua_anon_key_aqui"
+service_role_key = "sua_service_role_key_aqui"
+            """)
             return
         
         st.divider()
