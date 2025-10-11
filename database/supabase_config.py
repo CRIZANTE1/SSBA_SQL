@@ -100,6 +100,35 @@ def get_supabase_client() -> Client:
         logger.critical(f"Erro ao criar cliente Supabase: {e}")
         raise
 
+def get_supabase_admin_client() -> Client:
+    """
+    Retorna um cliente Supabase com privilégios administrativos (service_role).
+    Use apenas para operações de Storage que requerem acesso total.
+    """
+    supabase_url, _ = get_supabase_credentials()
+    
+    # Busca a service_role key
+    service_role_key = None
+    try:
+        if hasattr(st, 'secrets') and 'supabase' in st.secrets:
+            service_role_key = st.secrets.supabase.get("service_role_key")
+    except Exception:
+        pass
+    
+    if not service_role_key:
+        service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    
+    if not service_role_key:
+        raise ValueError("Service role key não encontrada nos secrets")
+    
+    try:
+        client = create_client(supabase_url, service_role_key)
+        logger.info("Cliente Supabase Admin criado com sucesso")
+        return client
+    except Exception as e:
+        logger.critical(f"Erro ao criar cliente admin: {e}")
+        raise
+
 # Nomes dos buckets no Supabase Storage
 PUBLIC_IMAGES_BUCKET = "public-images"
 RESTRICTED_ATTACHMENTS_BUCKET = "restricted-attachments"

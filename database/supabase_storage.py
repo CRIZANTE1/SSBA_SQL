@@ -26,11 +26,19 @@ class SupabaseStorage:
             return
         
         try:
-            self.client = get_supabase_client()
-            logger.info("SupabaseStorage inicializado com sucesso")
+            # Usa o cliente admin para uploads (bypassa RLS)
+            from .supabase_config import get_supabase_admin_client
+            self.client = get_supabase_admin_client()
+            logger.info("SupabaseStorage inicializado com cliente administrativo")
         except Exception as e:
-            logger.critical(f"Falha ao inicializar SupabaseStorage: {e}")
-            self.client = None
+            logger.warning(f"Não foi possível inicializar cliente admin: {e}")
+            # Fallback para cliente normal
+            try:
+                self.client = get_supabase_client()
+                logger.info("SupabaseStorage usando cliente padrão")
+            except Exception as e2:
+                logger.critical(f"Falha ao inicializar SupabaseStorage: {e2}")
+                self.client = None
         
         self._initialized = True
 
