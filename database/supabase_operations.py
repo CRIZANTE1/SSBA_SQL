@@ -34,26 +34,24 @@ class SupabaseOperations:
 
     def get_engine_with_rls(self):
         """
-        Retorna um engine com RLS habilitado para o usuário atual.
-        Usa o email do session_state do Streamlit.
+        MELHORADO: Valida se o usuário está autenticado antes de criar engine
         """
         user_email = None
         
-        # Tenta obter o email do usuário logado
         if hasattr(st, 'session_state'):
             user_email = st.session_state.get('user_info', {}).get('email')
             if not user_email:
-                # Fallback para auth customizado
                 user_email = st.session_state.get('user_info_custom', {}).get('email')
         
-        if user_email:
-            logger.info(f"Criando engine com RLS para usuário: {user_email}")
-            return get_database_engine(user_email)
-        else:
-            logger.warning("Nenhum usuário logado, usando engine sem RLS")
-            return self.engine
+        # <<< ADICIONAR VALIDAÇÃO >>>
+        if not user_email:
+            logger.critical("⚠️ TENTATIVA DE ACESSO SEM AUTENTICAÇÃO!")
+            raise PermissionError("Usuário não autenticado. RLS não pode ser aplicado.")
+        
+        logger.info(f"✅ Criando engine com RLS para usuário: {user_email}")
+        return get_database_engine(user_email)
 
-    @st.cache_data(ttl=600)  # 10 minutos ao invés de 1
+    @st.cache_data(ttl=300)  # Reduzido para 5 minutos
     def get_table_data(_self, table_name: str) -> pd.DataFrame:
         """Carrega todos os dados de uma tabela (com RLS aplicado)"""
         if not _self.engine:

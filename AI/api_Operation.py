@@ -11,49 +11,58 @@ class PDFQA:
         """
         self.extraction_model, self.audit_model = load_models()
 
-    def answer_question(self, files, question, task_type='extraction'): # <<< MUDANÇA AQUI
-        """
-        Função principal para responder a uma pergunta, selecionando o modelo apropriado.
-        Atua como um "roteador" para o modelo de IA correto.
-        
-        Args:
-            files (list): Lista de caminhos ou objetos de arquivo (PDFs, imagens, etc.).
-            question (str): A pergunta ou prompt.
-            task_type (str): 'extraction' (padrão) ou 'audit'.
-        
-        Returns:
-            tuple: (response_dict, duration) ou (None, 0) em caso de erro.
-        """
-        start_time = time.time()
-        
-        model_to_use = self.extraction_model
-        if task_type == 'audit':
-            model_to_use = self.audit_model
-        
-        if not model_to_use:
-            st.error(f"O modelo de IA para a tarefa '{task_type}' não está disponível. Verifique as chaves da API nos secrets.")
-            return None, 0
+    def answer_question(self, files, question, task_type='extraction'):
+    start_time = time.time()
+    
+    model_to_use = self.extraction_model if task_type == 'extraction' else self.audit_model
+    
+    if not model_to_use:
+        st.error(f"O modelo de IA para a tarefa '{task_type}' não está disponível.")
+        return None, 0
 
-        try:
-            # O método _generate_response agora retorna o texto bruto
-            raw_answer_text = self._generate_response(model_to_use, files, question) # <<< MUDANÇA AQUI
-            
-            if raw_answer_text:
-                # Limpa o texto da resposta para extrair apenas o JSON
-                json_text = raw_answer_text.strip().replace('```json', '').replace('```', '').strip()
-                # Converte o texto JSON em um dicionário Python
-                answer_dict = json.loads(json_text)
-                return answer_dict, time.time() - start_time
-            else:
-                st.warning("Não foi possível obter uma resposta do modelo de IA.")
-                return None, 0
-        except json.JSONDecodeError:
-            st.error("Erro Crítico: A IA retornou um formato que não é um JSON válido.")
-            st.code(raw_answer_text) # Mostra ao usuário o que a IA retornou
+    try:
+        raw_answer_text = self._generate_response(model_to_use, files, question)
+        
+        if not raw_answer_text:
+            st.warning("A IA não retornou resposta.")
             return None, 0
-        except Exception as e:
-            st.error(f"Erro inesperado ao processar a pergunta: {e}")
+        
+        # <<< MELHORAR PARSING >>>
+        json_text = raw_answer_text.strip()
+        
+        # Remove markdown code blocks
+        if json_text.startswith('```'):
+            json_text = '\n'.join(json_text.split('\n')[1:-1])
+        
+        # Tenta encontrar JSON válido dentro do texto
+        import re
+        json_match = re.search(r'\{.*\}', json_text, re.DOTALL)
+        if json_match:
+            json_text = json_match.group()
+        
+        answer_dict = json.loads(json_text)
+        
+        # <<< VALIDAÇÃO DE SCHEMA >>>
+        required_keys = ['evento_resumo', 'data_evento', 'o_que_aconteceu', 
+                        'por_que_aconteceu', 'recomendacoes']
+        missing_keys = [k for k in required_keys if k not in answer_dict]
+        
+        if missing_keys:
+            st.error(f"⚠️ IA retornou JSON incompleto. Faltam: {', '.join(missing_keys)}")
+            st.code(raw_answer_text)
             return None, 0
+        
+        return answer_dict, time.time() - start_time
+        
+    except json.JSONDecodeError as e:
+        st.error(f"❌ Erro ao processar resposta da IA: {e}")
+        with st.expander("🔍 Ver resposta bruta da IA"):
+            st.code(raw_answer_text)
+        return None, 0
+    except Exception as e:
+        st.error(f"❌ Erro inesperado: {e}")
+        logger.exception("Erro no answer_question")
+        return None, 0
 
     def _generate_response(self, model, files, question): # <<< MUDANÇA AQUI
         """
