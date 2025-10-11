@@ -8,6 +8,8 @@ from operations.audit_logger import log_action
 from AI.api_Operation import PDFQA
 from front.admin_dashboard import display_admin_summary_dashboard
 from database.supabase_storage import SupabaseStorage
+from io import BytesIO
+from supabase import create_client
 
 # --- LÓGICA DE NEGÓCIO PARA CADASTRO DE INCIDENTE ---
 
@@ -220,6 +222,129 @@ def user_dialog(user_data=None):
                     else:
                         st.error("Falha ao adicionar usuário.")
 
+def display_storage_test_tab():
+    """Testa as configurações de Storage e API keys"""
+    st.header("🔍 Teste de Configuração de Storage")
+    
+    st.info("Use esta aba para diagnosticar problemas de autenticação com o Supabase Storage.")
+    
+    # Mostra as configurações (sem expor a chave completa)
+    try:
+        supabase_url = st.secrets.supabase.get("url")
+        anon_key = st.secrets.supabase.get("key")
+        service_key = st.secrets.supabase.get("service_role_key")
+        
+        st.subheader("Configurações Encontradas")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("URL do Supabase", "✅ Configurada" if supabase_url else "❌ Ausente")
+            if supabase_url:
+                st.caption(supabase_url)
+        
+        with col2:
+            st.metric("Anon Key", "✅ Encontrada" if anon_key else "❌ Ausente")
+            st.metric("Service Role Key", "✅ Encontrada" if service_key else "❌ Ausente")
+        
+        if not all([supabase_url, anon_key, service_key]):
+            st.error("⚠️ Algumas configurações estão faltando! Verifique o arquivo `.streamlit/secrets.toml`")
+            return
+        
+        st.divider()
+        st.subheader("Testes de Conectividade")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔑 Testar Anon Key", use_container_width=True):
+                with st.spinner("Testando..."):
+                    try:
+                        client = create_client(supabase_url, anon_key)
+                        buckets = client.storage.list_buckets()
+                        st.success(f"✅ Anon Key funciona!\n\n{len(buckets)} buckets encontrados")
+                        with st.expander("Ver buckets"):
+                            st.json(buckets)
+                    except Exception as e:
+                        st.error(f"❌ Anon Key falhou:\n\n{e}")
+        
+        with col2:
+            if st.button("🔐 Testar Service Role Key", use_container_width=True, type="primary"):
+                with st.spinner("Testando..."):
+                    try:
+                        client = create_client(supabase_url, service_key)
+                        buckets = client.storage.list_buckets()
+                        st.success(f"✅ Service Role Key funciona!\n\n{len(buckets)} buckets encontrados")
+                        with st.expander("Ver buckets"):
+                            st.json(buckets)
+                    except Exception as e:
+                        st.error(f"❌ Service Role Key falhou:\n\n{e}")
+        
+        with col3:
+            if st.button("📤 Testar Upload", use_container_width=True):
+                with st.spinner("Testando upload..."):
+                    try:
+                        client = create_client(supabase_url, service_key)
+                        
+                        # Cria um arquivo de teste
+                        test_content = f"Teste de upload - {datetime.now().isoformat()}"
+                        test_file = BytesIO(test_content.encode())
+                        
+                        result = client.storage.from_("public-images").upload(
+                            path="test_upload.txt",
+                            file=test_file.getvalue(),
+                            file_options={"upsert": "true"}
+                        )
+                        
+                        st.success("✅ Upload funcionou!")
+                        
+                        # Gera URL do arquivo
+                        file_url = client.storage.from_("public-images").get_public_url("test_upload.txt")
+                        st.markdown(f"**Arquivo criado:** [test_upload.txt]({file_url})")
+                        
+                        with st.expander("Ver resposta completa"):
+                            st.json(result)
+                    except Exception as e:
+                        st.error(f"❌ Upload falhou:\n\n{e}")
+        
+        st.divider()
+        st.subheader("Teste do SupabaseStorage (classe do app)")
+        
+        if st.button("🧪 Testar SupabaseStorage", use_container_width=True):
+            with st.spinner("Testando a classe SupabaseStorage..."):
+                try:
+                    from database.supabase_storage import SupabaseStorage
+                    storage = SupabaseStorage()
+                    
+                    if not storage.client:
+                        st.error("❌ Cliente não foi inicializado")
+                        return
+                    
+                    # Testa listagem de buckets
+                    buckets = storage.client.storage.list_buckets()
+                    st.success(f"✅ SupabaseStorage funcionando!\n\n{len(buckets)} buckets acessíveis")
+                    
+                    # Testa upload
+                    test_file = BytesIO(b"teste da classe")
+                    test_file.name = "test_class.txt"
+                    test_file.type = "text/plain"
+                    
+                    url = storage.upload_public_image(test_file)
+                    
+                    if url:
+                        st.success(f"✅ Upload via classe funcionou!")
+                        st.markdown(f"**URL:** {url}")
+                    else:
+                        st.error("❌ Upload via classe falhou (retornou None)")
+                    
+                except Exception as e:
+                    st.error(f"❌ Erro ao testar SupabaseStorage:\n\n{e}")
+                    import traceback
+                    with st.expander("Ver traceback completo"):
+                        st.code(traceback.format_exc())
+    
+    except Exception as e:
+        st.error(f"Erro ao carregar configurações: {e}")
+
 # --- PÁGINA PRINCIPAL ---
 
 def show_admin_page():
@@ -228,8 +353,14 @@ def show_admin_page():
     if st.session_state.get('unit_name') != 'Global':
         st.error("Acesso restrito ao Administrador Global."); st.stop()
     
-    tab_dashboard, tab_incident, tab_users, tab_requests, tab_logs = st.tabs([
-        "📊 Dashboard Global", "➕ Cadastrar Alerta", "👥 Gerenciar Usuários", "📥 Solicitações", "📜 Logs"
+    # <<< ADICIONE A NOVA ABA AQUI >>>
+    tab_dashboard, tab_incident, tab_users, tab_requests, tab_logs, tab_storage_test = st.tabs([
+        "📊 Dashboard Global", 
+        "➕ Cadastrar Alerta", 
+        "👥 Gerenciar Usuários", 
+        "📥 Solicitações", 
+        "📜 Logs",
+        "🔧 Teste Storage"  # <<< NOVA ABA
     ])
 
     with tab_dashboard:
@@ -289,3 +420,7 @@ def show_admin_page():
                             if matrix_manager.reject_access_request(row['email']):
                                 st.warning(f"Solicitação de {row['email']} rejeitada."); st.rerun()
                             else: st.error(f"Falha ao rejeitar {row['email']}.")
+    
+    # <<< NOVA ABA DE TESTE >>>
+    with tab_storage_test:
+        display_storage_test_tab()
