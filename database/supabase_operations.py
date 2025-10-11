@@ -224,6 +224,26 @@ class SupabaseOperations:
             logger.error(f"Erro ao buscar na tabela '{table_name}': {e}")
             return pd.DataFrame()
 
+    def get_by_field_no_rls(self, table_name: str, field: str, value) -> pd.DataFrame:
+        """
+        Busca registros SEM aplicar RLS - usado apenas para autenticação.
+        ⚠️ USE COM EXTREMO CUIDADO - bypass de segurança!
+        """
+        if not self.engine:
+            return pd.DataFrame()
+        
+        try:
+            # Usa engine padrão SEM contexto de usuário
+            query = text(f"SELECT * FROM {table_name} WHERE {field} = :value")
+            
+            with self.engine.connect() as conn:
+                df = pd.read_sql(query, conn, params={'value': value})
+            
+            return df
+        except Exception as e:
+            logger.error(f"Erro ao buscar na tabela '{table_name}' sem RLS: {e}")
+            return pd.DataFrame()
+
     def execute_query(self, query: str, params: dict = None) -> pd.DataFrame:
         """Executa uma query customizada (com RLS aplicado)"""
         if not self.engine:

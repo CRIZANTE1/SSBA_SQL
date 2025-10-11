@@ -49,7 +49,10 @@ class MatrixManager:
             return None
         
         email_clean = str(email).lower().strip()
-        users_df = self.db.get_by_field("usuarios", "email", email_clean)
+        
+        # <<< MUDANÇA: Usa método sem RLS para autenticação >>>
+        users_df = self.db.get_by_field_no_rls("usuarios", "email", email_clean)
+        
         return users_df.iloc[0].to_dict() if not users_df.empty else None
 
     def add_user(self, user_data: list) -> bool:
@@ -126,7 +129,8 @@ class MatrixManager:
 
     def get_pending_access_requests(self) -> pd.DataFrame:
         """Retorna solicitações pendentes"""
-        return self.db.get_by_field("solicitacoes_acesso", "status", "pendente")
+        # <<< MUDANÇA: Usa método sem RLS para verificação de solicitações >>>
+        return self.db.get_by_field_no_rls("solicitacoes_acesso", "status", "pendente")
 
     def approve_access_request(self, email: str, role: str) -> bool:
         """Aprova uma solicitação de acesso"""

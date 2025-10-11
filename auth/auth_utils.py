@@ -37,6 +37,8 @@ def authenticate_user() -> bool:
         return True
 
     matrix_manager = get_matrix_manager()
+    
+    # <<< ESTA CHAMADA AGORA USA get_by_field_no_rls internamente >>>
     user_info = matrix_manager.get_user_info(user_email)
 
     if user_info:
@@ -52,7 +54,9 @@ def authenticate_user() -> bool:
         st.session_state.access_status = "authorized"
         return True
     else:
+        # <<< ESTA CHAMADA TAMBÉM USA get_by_field_no_rls internamente >>>
         pending_requests = matrix_manager.get_pending_access_requests()
+        
         if not pending_requests.empty and not pending_requests[pending_requests['email'] == user_email].empty:
             st.session_state.access_status = "pending"
         else:
