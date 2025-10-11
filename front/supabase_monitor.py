@@ -20,14 +20,17 @@ def get_database_size():
     try:
         engine = get_database_engine()
         with engine.connect() as conn:
-            # Tamanho de cada tabela
+            # <<< MUDANÇA: Usar pg_class ao invés de pg_tables >>>
             result = conn.execute(text("""
                 SELECT 
-                    schemaname,
-                    tablename,
-                    pg_total_relation_size(schemaname||'.'||tablename) as size_bytes
-                FROM pg_tables
-                WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                    n.nspname as schemaname,
+                    c.relname as tablename,
+                    pg_total_relation_size(c.oid) as size_bytes
+                FROM pg_class c
+                LEFT JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                  AND c.relkind = 'r'
+                  AND n.nspname = 'public'
                 ORDER BY size_bytes DESC
             """))
             
@@ -98,10 +101,11 @@ def get_row_counts():
     try:
         engine = get_database_engine()
         with engine.connect() as conn:
+            # <<< MUDANÇA: Usar relname ao invés de tablename >>>
             result = conn.execute(text("""
                 SELECT 
                     schemaname,
-                    tablename,
+                    relname as tablename,
                     n_live_tup as row_count
                 FROM pg_stat_user_tables
                 WHERE schemaname = 'public'
