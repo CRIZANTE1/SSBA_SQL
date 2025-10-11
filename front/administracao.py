@@ -7,6 +7,7 @@ from auth.auth_utils import check_permission
 from operations.audit_logger import log_action
 from AI.api_Operation import PDFQA
 from front.admin_dashboard import display_admin_summary_dashboard
+from front.supabase_monitor import display_supabase_monitor
 from database.supabase_storage import SupabaseStorage
 from io import BytesIO
 from supabase import create_client
@@ -480,13 +481,14 @@ def show_admin_page():
         st.error("Acesso restrito ao Administrador Global."); st.stop()
     
     # <<< ADICIONE A NOVA ABA AQUI >>>
-    tab_dashboard, tab_incident, tab_users, tab_requests, tab_logs, tab_storage_test = st.tabs([
+    tab_dashboard, tab_incident, tab_users, tab_requests, tab_logs, tab_storage_test, tab_monitor = st.tabs([
         "📊 Dashboard Global", 
         "➕ Cadastrar Alerta", 
         "👥 Gerenciar Usuários", 
         "📥 Solicitações", 
         "📜 Logs",
-        "🔧 Teste Storage"  # <<< NOVA ABA
+        "🔧 Teste Storage",
+        "📊 Monitor Supabase"  # <<< NOVA ABA
     ])
 
     with tab_dashboard:
@@ -550,3 +552,6 @@ def show_admin_page():
     # <<< NOVA ABA DE TESTE >>>
     with tab_storage_test:
         display_storage_test_tab()
+
+    with tab_monitor:
+        display_supabase_monitor()
