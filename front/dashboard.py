@@ -160,9 +160,19 @@ def render_incident_card(incident, col, incident_manager, is_pending):
             st.caption("Sem imagem anexada")
         st.subheader(incident.get('evento_resumo'))
         st.write(incident.get('o_que_aconteceu'))
+        
+        # <<< MUDANÇA AQUI >>>
         anexos_url = incident.get('anexos_url')
         if pd.notna(anexos_url) and isinstance(anexos_url, str) and anexos_url.strip():
-            st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
+            # Verifica se é uma URL válida do Supabase
+            if anexos_url.startswith('http'):
+                st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
+            else:
+                st.caption("⚠️ URL de anexo inválida no banco de dados")
+                # Debug: Mostra a URL problemática (remova depois)
+                with st.expander("🔍 Debug - Ver URL"):
+                    st.code(anexos_url)
+        
         st.write("") 
         if is_pending:
             if st.button("Analisar Abrangência", key=f"analisar_{incident['id']}", type="primary", width='stretch'):
