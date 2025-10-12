@@ -334,3 +334,28 @@ class SupabaseStorage:
         except Exception as e:
             logger.error(f"Erro ao obter metadados: {e}")
             return None
+
+    def get_signed_url(self, bucket_name: str, file_path: str, expires_in: int = 3600) -> str:
+        """
+        Gera uma URL assinada (temporária) para acessar arquivos privados.
+        
+        Args:
+            bucket_name: Nome do bucket
+            file_path: Caminho do arquivo
+            expires_in: Tempo de expiração em segundos (padrão: 1 hora)
+        
+        Returns:
+            URL assinada válida por 1 hora
+        """
+        if not self.client:
+            return ""
+        
+        try:
+            response = self.client.storage.from_(bucket_name).create_signed_url(
+                file_path,
+                expires_in
+            )
+            return response.get('signedURL', '')
+        except Exception as e:
+            logger.error(f"Erro ao gerar URL assinada: {e}")
+            return ""

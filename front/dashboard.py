@@ -164,14 +164,23 @@ def render_incident_card(incident, col, incident_manager, is_pending):
         # <<< MUDANÇA AQUI >>>
         anexos_url = incident.get('anexos_url')
         if pd.notna(anexos_url) and isinstance(anexos_url, str) and anexos_url.strip():
-            # Verifica se é uma URL válida do Supabase
-            if anexos_url.startswith('http'):
-                st.markdown(f"**[Ver Análise Completa 📄]({anexos_url})**")
+            # Extrai o caminho do arquivo da URL
+            if 'restricted-attachments' in anexos_url:
+                from database.supabase_storage import SupabaseStorage
+                storage = SupabaseStorage()
+                
+                # Extrai apenas o nome do arquivo
+                file_path = anexos_url.split('restricted-attachments/')[-1]
+                
+                # Gera URL assinada válida por 1 hora
+                signed_url = storage.get_signed_url('restricted-attachments', file_path, 3600)
+                
+                if signed_url:
+                    st.markdown(f"**[Ver Análise Completa ]({signed_url})**")
+                else:
+                    st.caption("⚠️ Não foi possível gerar link de acesso")
             else:
-                st.caption("⚠️ URL de anexo inválida no banco de dados")
-                # Debug: Mostra a URL problemática (remova depois)
-                with st.expander("🔍 Debug - Ver URL"):
-                    st.code(anexos_url)
+                st.markdown(f"**[Ver Análise Completa ]({anexos_url})**")
         
         st.write("") 
         if is_pending:
