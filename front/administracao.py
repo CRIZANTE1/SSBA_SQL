@@ -75,8 +75,12 @@ def display_incident_registration_tab():
     st.header("Cadastrar Novo Alerta de Incidente")
     
     # Verifica se o usuário é admin para mostrar opção de IA
-    user_role = st.session_state.get('user_role', 'user')
+    from auth.auth_utils import get_user_role
+    user_role = get_user_role()
     is_admin = user_role == 'admin'
+    
+    # Debug: mostra o papel do usuário (remover depois)
+    st.write(f"🔍 Debug - Papel do usuário: {user_role}, É admin: {is_admin}")
 
     # Passo 1: Formulário de Upload
     with st.form("new_incident_form"):
