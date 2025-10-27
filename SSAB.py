@@ -16,6 +16,7 @@ from auth.auth_utils import authenticate_user, get_user_role, get_user_display_n
 from front.dashboard import show_dashboard_page
 from front.administracao import show_admin_page
 from front.plano_de_acao import show_plano_acao_page
+from front.pdf_processor_page import display_pdf_processor_page
 from database.matrix_manager import get_matrix_manager
 from operations.audit_logger import log_action
 
@@ -119,6 +120,7 @@ def main():
         show_user_header()
         menu_items = {
             "Consultar Abrangência": {"icon": "card-checklist", "function": show_dashboard_page},
+            "Processar PDFs": {"icon": "file-earmark-pdf", "function": display_pdf_processor_page},
             "Plano de Ação": {"icon": "clipboard2-check-fill", "function": show_plano_acao_page},
         }
         if user_role == 'admin':

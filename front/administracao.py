@@ -9,58 +9,60 @@ from AI.api_Operation import PDFQA
 from front.admin_dashboard import display_admin_summary_dashboard
 from front.supabase_monitor import display_supabase_monitor
 from database.supabase_storage import SupabaseStorage
+from operations.pdf_processor import PDFProcessor
 from io import BytesIO
 from supabase import create_client
 
 # --- LÓGICA DE NEGÓCIO PARA CADASTRO DE INCIDENTE ---
 
-def analyze_incident_document(attachment_file, photo_file, alert_number):
+def analyze_incident_document(attachment_file, photo_file, alert_number, use_ai=False):
     """
-    Orquestra APENAS a análise com IA. Os uploads serão feitos após a confirmação.
+    Orquestra a análise do documento. Pode usar IA (apenas para admins) ou processamento tradicional.
+    Os uploads serão feitos após a confirmação.
     """
     st.session_state.processing = True
     st.session_state.error = None
     st.session_state.analysis_complete = False
 
     try:
-        with st.spinner("Analisando documento com IA..."):
-            # 1. Análise com IA
-            api_op = PDFQA()
-            prompt = """
-            Você é um especialista em análise de incidentes de segurança. Extraia as seguintes informações do documento e retorne um JSON.
-            - evento_resumo: Um título curto e informativo para o evento (ex: "Princípio de incêndio no laboratório").
-            - data_evento: A data de emissão do alerta, no formato YYYY-MM-DD.
-            - o_que_aconteceu: O parágrafo completo da seção "O que aconteceu?".
-            - por_que_aconteceu: O parágrafo completo da seção "Por que aconteceu?".
-            - recomendacoes: Uma lista de strings, onde cada string é um item da seção "O que fazer para evitar?".
-            Responda APENAS com o bloco de código JSON.
-            """
-            analysis_result, _ = api_op.answer_question(
-                files=[attachment_file],
-                question=prompt,
-                task_type='extraction'
-            )
-            if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
-                raise ValueError("A análise da IA falhou ou não retornou o formato JSON esperado com recomendações.")
+        # Valida o PDF primeiro
+        pdf_processor = PDFProcessor()
+        is_valid, validation_message = pdf_processor.validate_pdf_structure(attachment_file)
+        
+        if not is_valid:
+            st.warning(f"⚠️ {validation_message}")
+            st.info("Tentando processar mesmo assim...")
+        
+        # Escolhe o método de análise
+        if use_ai:
+            with st.spinner("Analisando documento com IA..."):
+                analysis_result = pdf_processor.extract_incident_data(attachment_file, use_ai=True)
+        else:
+            with st.spinner("Processando documento com bibliotecas especializadas..."):
+                analysis_result = pdf_processor.extract_incident_data(attachment_file, use_ai=False)
+        
+        if not isinstance(analysis_result, dict) or not analysis_result.get('recomendacoes'):
+            raise ValueError("A análise falhou ou não retornou dados válidos.")
 
-            # 2. Armazena os dados DA IA e os ARQUIVOS para upload posterior
-            st.session_state.incident_data_for_confirmation = {
-                **analysis_result,
-                "numero_alerta": alert_number,
-                # Armazena os arquivos em memória para upload depois
-                "photo_file_bytes": photo_file.getvalue(),
-                "photo_file_name": photo_file.name,
-                "photo_file_type": photo_file.type,
-                "attachment_file_bytes": attachment_file.getvalue(),
-                "attachment_file_name": attachment_file.name,
-                "attachment_file_type": attachment_file.type
-            }
-            st.session_state.analysis_complete = True
-            log_action("AI_ANALYSIS_SUCCESS", {"alert_number": alert_number})
+        # Armazena os dados extraídos e os arquivos para upload posterior
+        st.session_state.incident_data_for_confirmation = {
+            **analysis_result,
+            "numero_alerta": alert_number,
+            "analysis_method": "IA" if use_ai else "Tradicional",
+            # Armazena os arquivos em memória para upload depois
+            "photo_file_bytes": photo_file.getvalue(),
+            "photo_file_name": photo_file.name,
+            "photo_file_type": photo_file.type,
+            "attachment_file_bytes": attachment_file.getvalue(),
+            "attachment_file_name": attachment_file.name,
+            "attachment_file_type": attachment_file.type
+        }
+        st.session_state.analysis_complete = True
+        log_action("PDF_ANALYSIS_SUCCESS", {"alert_number": alert_number, "method": "IA" if use_ai else "Tradicional"})
 
     except Exception as e:
         st.session_state.error = f"Ocorreu um erro durante o processamento: {e}"
-        log_action("AI_ANALYSIS_FAILURE", {"alert_number": alert_number, "error": str(e)})
+        log_action("PDF_ANALYSIS_FAILURE", {"alert_number": alert_number, "error": str(e), "method": "IA" if use_ai else "Tradicional"})
     finally:
         st.session_state.processing = False
 
@@ -71,6 +73,10 @@ def display_incident_registration_tab():
     Renderiza a interface da aba para cadastrar um novo alerta de incidente.
     """
     st.header("Cadastrar Novo Alerta de Incidente")
+    
+    # Verifica se o usuário é admin para mostrar opção de IA
+    user_role = st.session_state.get('user_role', 'user')
+    is_admin = user_role == 'admin'
 
     # Passo 1: Formulário de Upload
     with st.form("new_incident_form"):
@@ -79,13 +85,45 @@ def display_incident_registration_tab():
         attachment_file = st.file_uploader("Documento de Análise (PDF)", type="pdf")
         photo_file = st.file_uploader("Foto do Incidente (JPG/PNG)", type=["jpg", "png"])
         
-        submitted = st.form_submit_button("Analisar com IA", type="primary")
+        # Opção de método de análise (apenas para admins)
+        if is_admin:
+            st.markdown("**Método de Análise**")
+            col1, col2 = st.columns(2)
+            with col1:
+                use_ai = st.checkbox("🤖 Usar IA (Google Gemini)", value=False, 
+                                   help="Análise avançada com IA - mais precisa mas mais lenta")
+            with col2:
+                if use_ai:
+                    st.info("✅ IA ativada - Análise mais precisa")
+                else:
+                    st.info("📄 Processamento tradicional - Mais rápido")
+        else:
+            use_ai = False
+            st.info("📄 Processamento tradicional com bibliotecas especializadas")
+        
+        # Botão de análise
+        button_text = "🤖 Analisar com IA" if use_ai else "📄 Processar Documento"
+        submitted = st.form_submit_button(button_text, type="primary")
 
         if submitted:
             if not all([alert_number, attachment_file, photo_file]):
                 st.warning("Por favor, preencha todos os campos e anexe os arquivos.")
             else:
-                analyze_incident_document(attachment_file, photo_file, alert_number)
+                # Mostra preview do PDF se disponível
+                if attachment_file:
+                    try:
+                        pdf_processor = PDFProcessor()
+                        preview_images = pdf_processor.generate_pdf_preview(attachment_file, max_pages=2)
+                        if preview_images:
+                            st.markdown("**📄 Preview do PDF:**")
+                            cols = st.columns(len(preview_images))
+                            for i, img in enumerate(preview_images):
+                                with cols[i]:
+                                    st.image(img, caption=f"Página {i+1}", use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Não foi possível gerar preview do PDF: {e}")
+                
+                analyze_incident_document(attachment_file, photo_file, alert_number, use_ai)
     
     if st.session_state.get('error'):
         st.error(st.session_state.error)
@@ -93,8 +131,16 @@ def display_incident_registration_tab():
     # Passo 2: Formulário de Confirmação
     if st.session_state.get('analysis_complete'):
         st.divider()
-        st.subheader("2. Revise os dados extraídos pela IA e confirme")
         data = st.session_state.incident_data_for_confirmation
+        analysis_method = data.get('analysis_method', 'Tradicional')
+        
+        st.subheader(f"2. Revise os dados extraídos ({analysis_method}) e confirme")
+        
+        # Mostra informações sobre o método usado
+        if analysis_method == "IA":
+            st.success("✅ Dados extraídos usando IA (Google Gemini)")
+        else:
+            st.info("📄 Dados extraídos usando processamento tradicional")
 
         with st.form("confirm_incident_form"):
             col1, col2 = st.columns([1, 2])
@@ -114,13 +160,16 @@ def display_incident_registration_tab():
             edited_por_que_aconteceu = st.text_area("Por que aconteceu?", value=data.get('por_que_aconteceu', ''), height=150)
             
             st.markdown("##### Recomendações / Ações de Bloqueio Sugeridas")
-            recomendacoes_df = pd.DataFrame(data.get('recomendacoes', []), columns=["Descrição da Ação"])
+            recomendacoes_list = data.get('recomendacoes', [])
+            if not isinstance(recomendacoes_list, list):
+                recomendacoes_list = []
+            recomendacoes_df = pd.DataFrame(recomendacoes_list, columns=["Descrição da Ação"])
             edited_recomendacoes = st.data_editor(recomendacoes_df, num_rows="dynamic", width='stretch')
 
             confirm_button = st.form_submit_button("Confirmar e Salvar Alerta Completo")
 
             if confirm_button:
-                if not all([edited_evento_resumo, edited_data_evento, edited_o_que_aconteceu]) or edited_recomendacoes.empty:
+                if not all([edited_evento_resumo, edited_data_evento, edited_o_que_aconteceu]) or len(edited_recomendacoes) == 0:
                     st.error("Todos os campos de texto e a lista de recomendações devem ser preenchidos.")
                 else:
                     with st.spinner("Fazendo upload dos arquivos e salvando no banco de dados..."):
@@ -131,11 +180,11 @@ def display_incident_registration_tab():
                         # Reconstrói os objetos de arquivo a partir dos bytes armazenados
                         photo_file_obj = BytesIO(data['photo_file_bytes'])
                         photo_file_obj.name = data['photo_file_name']
-                        photo_file_obj.type = data['photo_file_type']
+                        # photo_file_obj.type não é necessário para BytesIO
                         
                         attachment_file_obj = BytesIO(data['attachment_file_bytes'])
                         attachment_file_obj.name = data['attachment_file_name']
-                        attachment_file_obj.type = data['attachment_file_type']
+                        # attachment_file_obj.type não é necessário para BytesIO
                         
                         # Upload da foto
                         photo_url = storage.upload_public_image(photo_file_obj)
@@ -151,17 +200,22 @@ def display_incident_registration_tab():
                         incident_manager = get_incident_manager()
                         
                         new_incident_id = incident_manager.add_incident(
-                            numero_alerta=data['numero_alerta'],
-                            evento_resumo=edited_evento_resumo,
-                            data_evento=edited_data_evento,
-                            o_que_aconteceu=edited_o_que_aconteceu,
-                            por_que_aconteceu=edited_por_que_aconteceu,
+                            numero_alerta=str(data['numero_alerta']),
+                            evento_resumo=str(edited_evento_resumo) if edited_evento_resumo else "",
+                            data_evento=edited_data_evento if edited_data_evento else datetime.now().date(),
+                            o_que_aconteceu=str(edited_o_que_aconteceu) if edited_o_que_aconteceu else "",
+                            por_que_aconteceu=str(edited_por_que_aconteceu) if edited_por_que_aconteceu else "",
                             foto_url=photo_url,
                             anexos_url=anexos_url
                         )
 
                         if new_incident_id:
-                            recomendacoes_list = edited_recomendacoes["Descrição da Ação"].tolist()
+                            # Converte DataFrame para lista de strings
+                            if isinstance(edited_recomendacoes, pd.DataFrame):
+                                recomendacoes_list = edited_recomendacoes["Descrição da Ação"].tolist()
+                            else:
+                                recomendacoes_list = edited_recomendacoes if isinstance(edited_recomendacoes, list) else []
+                            
                             success_actions = incident_manager.add_blocking_actions_batch(new_incident_id, recomendacoes_list)
                             
                             if success_actions:
@@ -453,7 +507,7 @@ service_role_key = "sua_service_role_key_aqui"
                     # Testa upload
                     test_file = BytesIO(b"teste da classe")
                     test_file.name = "test_class.txt"
-                    test_file.type = "text/plain"
+                    # test_file.type não é necessário para BytesIO
                     
                     url = storage.upload_public_image(test_file)
                     
@@ -505,8 +559,8 @@ def show_admin_page():
         if not all_users_df.empty:
             st.write("Clique em uma linha para editar ou remover um usuário.")
             selected_user = st.dataframe(all_users_df, width='stretch', hide_index=True, on_select="rerun", selection_mode="single-row")
-            if selected_user.selection.rows:
-                user_to_manage = all_users_df.iloc[selected_user.selection.rows[0]].to_dict()
+            if hasattr(selected_user, 'selection') and selected_user.selection and hasattr(selected_user.selection, 'rows') and selected_user.selection['rows']:
+                user_to_manage = all_users_df.iloc[selected_user.selection['rows'][0]].to_dict()
                 st.subheader(f"Ações para: {user_to_manage['nome']}")
                 col1, col2 = st.columns(2)
                 if col1.button("✏️ Editar Usuário", width='stretch'): user_dialog(user_to_manage)
@@ -540,12 +594,12 @@ def show_admin_page():
                     role_to_assign = col3.selectbox("Definir Papel", options=["viewer", "editor", "admin"], index=0, key=f"role_{index}")
                     if col_approve.button("Aprovar", key=f"approve_{index}", type="primary", width='stretch'):
                         with st.spinner(f"Aprovando {row['email']}..."):
-                            if matrix_manager.approve_access_request(row['email'], role_to_assign):
+                            if matrix_manager.approve_access_request(str(row['email']), role_to_assign):
                                 st.success(f"Usuário {row['email']} aprovado!"); st.rerun()
                             else: st.error(f"Falha ao aprovar {row['email']}.")
                     if col_reject.button("Rejeitar", key=f"reject_{index}", width='stretch'):
                         with st.spinner(f"Rejeitando {row['email']}..."):
-                            if matrix_manager.reject_access_request(row['email']):
+                            if matrix_manager.reject_access_request(str(row['email'])):
                                 st.warning(f"Solicitação de {row['email']} rejeitada."); st.rerun()
                             else: st.error(f"Falha ao rejeitar {row['email']}.")
     
